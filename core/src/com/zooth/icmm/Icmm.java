@@ -36,7 +36,7 @@ class Obj
   Obj(){};
   void init(){};
   Icmm game;
-  void setGame(Icmm g){this.game=g;if(ai!=null){ai.setGame(g);}}
+  void setGame(Icmm g){this.game=g;if(ai!=null){ai.setGame(g);ai.init(this);}}
   String tex;
   String sel;
   //String inv;
@@ -49,11 +49,12 @@ class Obj
   boolean tall;
   Mesh customMesh(){return null;};
   AI ai=null;
-  void setAI(AI a){ai=a;ai.setGame(game);}
+  void setAI(AI a){ai=a;ai.setGame(game);if(game!=null){ai.init(this);}}
   boolean solid;
   boolean stationary;
   boolean canHit;
   boolean dead;// different than remove
+  float hp;float getHP(){return hp;}
   boolean inWorld=true;
   float radius=-1;// if bigger than 0 it means the obj is hittable (not solid)
   boolean canTog;
@@ -141,17 +142,24 @@ class Obj
   Vector2 getDir(){
     return new Vector2(1,0).rotate(angle);
   }
+  void fight(){
+  }
 }
 class Guy extends Obj
 {
   Guy(){
+    hp=1f;
     weight=.1f;
     canHit=true;
     radius=.3f;
   }
   void damaged(float f, Obj o){
     game.playSound("wizD", getPos());
-    game.die();
+    hp -= f*.4f;
+    if (hp<=0){
+      hp=0;
+      game.die();
+    }
   }
   void toInv(Obj o, Obj from){
     game.toInv(o);
@@ -505,6 +513,7 @@ class Torch extends Obj
     canHit=true;
     solid=true;
     radius=.25f;
+    stationary=true;
   }
   Array<LockedDoor> lds = new Array<LockedDoor>();
   Array<Torch> torches = new Array<Torch>();
@@ -529,16 +538,17 @@ class Torch extends Obj
     }
   }
   void damaged(float d, Obj o){
-    Gdx.app.log("hit", "woo");
-    if (o instanceof Exp){
-      onFire=true;
-      boolean allOn=true;
-      for (Torch t : torches)
-        if (!t.onFire)
-          allOn=false;
-      if (allOn)
-        for (LockedDoor ld : lds)
-          ld.tog(this);
+    if (!onFire){// only activate if we werent on fire
+      if (o instanceof Exp){
+        onFire=true;
+        boolean allOn=true;
+        for (Torch t : torches)
+          if (!t.onFire)
+            allOn=false;
+        if (allOn)
+          for (LockedDoor ld : lds)
+            ld.tog(this);
+      }
     }
   }
 }
@@ -845,6 +855,20 @@ class Knight extends Obj
     tex="knight.png";
     billboard=true;
     canHit=true;
+    ai=new FightAI();
+  }
+  void fight(){
+    game.playSound("swordW", getPos());
+    angle=game.getGuyPos().cpy().sub(getPos()).angle();
+    Icmm.ObjTester iot = new Icmm.ObjTester(){
+      boolean works(Obj o){
+        return o.canHit;
+      }
+    };
+    Obj bestObj = game.getFirst(this, 90, 1f, iot);
+    if (bestObj != null){
+      bestObj.damaged(1f,this);
+    }
   }
   float walkCount=0;
   float minWCount = 1;
@@ -859,6 +883,30 @@ class Knight extends Obj
   float changeAngCountMin=.3f;
   float actTime=0;
   float actTimeMax=2f;
+  String getTex(){
+    FightAI fai=null;
+    if(ai instanceof FightAI){
+      fai = (FightAI)ai;
+    }
+    if(ai instanceof WanderFightAI){
+      fai = ((WanderFightAI)ai).fai;
+    }
+    if (fai!=null){
+      if(fai.actTime<fai.actTimeMax){
+        if(fai.actTime<fai.actTimeMax*.5f)
+          return "knightA1.png";
+        if(fai.actTime>fai.actTimeMax*.5f)
+          return "knightA2.png";
+      }else
+      {
+        if ((int)(fai.walkCount*8)%2==0)
+          tex="knightW1.png";
+        else
+          tex="knightW2.png";
+      }
+    }
+    return null;
+  }
   void step(float dt){
     if (ai!=null)
       ai.act(this,dt);
@@ -1106,8 +1154,16 @@ class Door extends Obj
     solid=!solid;if(solid){tex="doorC.png";}else{tex="doorO.png";}}
 }
 class AI{
-  Icmm game;void setGame(Icmm g){game=g;}
+  //Icmm game;void setGame(Icmm g){game=g;}
+  void setGame(Icmm g){};
+  Obj obj;
+  void act(float dt){
+    act(obj, dt);
+  }
   void act(Obj o, float dt){
+  }
+  void init(Obj o){
+    obj=o;
   }
 }
 class WanderAI extends AI{
@@ -1121,6 +1177,94 @@ class WanderAI extends AI{
       obj.angle = ((float)Math.random()*360);
     }
     obj.oldStep(dt);
+  }
+}
+class WanderFightAI extends AI{
+  WanderAI wai;
+  FightAI fai;
+  void init(Obj o){
+    super.init(o);
+    wai=new WanderAI();
+    fai=new FightAI();
+  }
+  float checkGuyCount=0;
+  float checkGuyMax=1f;
+  static int ACT_WALK=0;
+  static int ACT_KILL=1;
+  int currAct=ACT_WALK;
+  void act(Obj obj, float dt){
+    checkGuyCount+=dt;
+    if (checkGuyCount>=checkGuyMax){
+      checkGuyCount-=checkGuyMax;
+      Icmm.ObjTester iot = new Icmm.ObjTester(){
+        boolean works(Obj o){
+          return (o instanceof Guy);
+        }
+      };
+      Array<Tile> path = obj.game.getPath(obj.getPos(), 17, obj, iot);
+      if (path!=null&&path.size>2&&path.size<6){
+        currAct=ACT_KILL;
+      }else{
+        currAct=ACT_WALK;
+      }
+    }
+    if (currAct==ACT_KILL){
+      fai.act(obj, dt);
+    }else{
+      wai.act(obj, dt);
+    }
+  }
+}
+class FightAI extends AI{
+  float changeAngCount=0;
+  float changeAngCountMax=.5f;
+  float changeAngCountMin=.3f;
+  float actTime=0;
+  float actTimeMax=2f;
+  float walkCount=0;
+  void act(Obj obj, float dt){
+    if (actTime < actTimeMax)
+    {
+      boolean setup=(actTime<actTimeMax*.5f);
+      actTime+=dt;
+      if(actTime>actTimeMax*.5f){
+        if (setup){
+          // call fighting ability
+          obj.fight();
+        }
+      }
+    }else
+    {
+      walkCount += dt;
+      changeAngCount-=dt;
+      if (changeAngCount<=0){
+        Icmm.ObjTester iot = new Icmm.ObjTester(){
+          boolean works(Obj o){
+            return (o instanceof Guy);
+          }
+        };
+        Array<Tile> path = obj.game.getPath(obj.getPos(), 17, obj, iot);
+        if (path!=null&&path.size>2){
+          // open any doors in our way
+          Tile t = path.get(path.size-3);
+          for (Obj o : obj.game.objs){
+            if (obj.game.tileAt(o.getPos())==t&&
+              o.solid&&o.canTog){
+              o.tog(obj);
+            }
+          }
+          obj.angle=t.getPos().cpy().sub(obj.getPos()).angle();
+        }
+        if (path!=null&&path.size < 4){
+          // we should attack, the target is close
+          actTime=0f;
+        }
+        changeAngCount=changeAngCountMin+(float)Math.random()*(changeAngCountMax-changeAngCountMin);
+      }
+      obj.oldStep(dt);
+    }
+  }
+  void fight(Obj obj){
   }
 }
 public class Icmm extends ApplicationAdapter {
@@ -1267,6 +1411,9 @@ public class Icmm extends ApplicationAdapter {
     if (o.loop!=null)
     {
       o.loop.stop(o.soundLoop);
+      // reset so we dont try to keep playing it
+      o.loop=null;
+      o.soundLoop=-1;
     }
   }
   void loopSound(String s, Vector2 pos, Obj o){
@@ -1345,11 +1492,13 @@ public class Icmm extends ApplicationAdapter {
   Mesh tunnelWall;
   Mesh pitWall;
   Mesh uiitem;
+  Mesh fullui;
   Mesh inWorld;
   Mesh inWorldR;
   Mesh pedestal;
   Mesh pedestalTop;
   Mesh inWorldTall;
+  Texture red;
   int srtx = 0;
   int endx = 100;
   int srty = 0;
@@ -1358,6 +1507,11 @@ public class Icmm extends ApplicationAdapter {
   float tgh=1.5f;// tunnel gap height
 	@Override
 	public void create () {
+    {
+      Pixmap p = new Pixmap(1,1,Pixmap.Format.RGBA8888);
+      p.setColor(1,0,0,1);p.drawPixel(0,0);
+      red = new Texture(p);
+    }
     ass.load("ratD.ogg", Sound.class);
     ass.load("portal.ogg", Sound.class);
     ass.load("dogD.ogg", Sound.class);
@@ -1540,6 +1694,19 @@ public class Icmm extends ApplicationAdapter {
       1,2,3,
       3,1,0
     });
+    fullui = new Mesh(true, 4, 6,
+      new VertexAttribute(VertexAttributes.Usage.Position, 3, "a_position"),
+      new VertexAttribute(VertexAttributes.Usage.TextureCoordinates, 2, "a_uv"));
+    fullui.setVertices(new float[]{
+      -.5f,.5f,0, 0,0,
+      -.5f,-.5f,0,0,1,
+      .5f,-.5f,0, 1,1,
+      .5f,.5f,0,  1,0
+    });
+    fullui.setIndices(new short[]{
+      1,2,3,
+      3,1,0
+    });
     uiitem = new Mesh(true, 4, 6,
       new VertexAttribute(VertexAttributes.Usage.Position, 3, "a_position"),
       new VertexAttribute(VertexAttributes.Usage.TextureCoordinates, 2, "a_uv"));
@@ -1672,6 +1839,7 @@ public class Icmm extends ApplicationAdapter {
       }
       {
         Obj w=new Knight();
+        w.setAI(new WanderFightAI());
         w.setPos(14,4);
         addObj(w);
         {
@@ -2009,7 +2177,7 @@ public class Icmm extends ApplicationAdapter {
         Obj o = objs.get(i);
         if (o!=obj&&o!=null)
         {
-          if (o.radius>0)
+          if (!o.stationary&&o.radius>0)
           {
             Vector2 diff = rtn.cpy().sub(o.getPos());
             float dist = diff.len()-o.radius-obj.radius;
@@ -2020,7 +2188,9 @@ public class Icmm extends ApplicationAdapter {
               o.getHit(obj);
               obj.getHit(o);
               float totWeight=o.weight+obj.weight;
-              rtn.add(diff.nor().scl(-dist*o.weight/totWeight));
+              if (!obj.stationary)
+                rtn.add(diff.nor().scl(-dist*o.weight/totWeight));
+              if (!o.stationary)
               {
                 Vector2 newOPos = o.getPos().cpy().add(diff.nor().scl(dist*obj.weight/totWeight));
                 Vector3 n3 = new Vector3(newOPos.x, o.pos.y, newOPos.y);
@@ -2124,6 +2294,7 @@ public class Icmm extends ApplicationAdapter {
       cam.update();
       sp.setUniformMatrix("u_projectionViewMatrix", cam.combined);
       sp.setUniformf("u_light", cam.position.cpy().add(0,0,0));
+      sp.setUniformf("u_color", 1,1,1,1);
       if (dying&&!winning)
         sp.setUniformf("u_light", cam.position.cpy().add(0,-1*deathTimer*2f,0));
       // draw box:
@@ -2258,11 +2429,36 @@ public class Icmm extends ApplicationAdapter {
         if (!dying)
         {
           sp.setUniformMatrix("u_projectionViewMatrix", uicam.combined);
-          Matrix4 mat = new Matrix4();
-          sp.setUniformMatrix("u_objectMatrix", mat);
           sp.setUniformf("u_light", uicam.position);
-          ass.get(held.sel, Texture.class).bind();
-          uiitem.render(sp, GL20.GL_TRIANGLES);
+          {
+            Matrix4 mat = new Matrix4();
+            sp.setUniformMatrix("u_objectMatrix", mat);
+            ass.get(held.sel, Texture.class).bind();
+            uiitem.render(sp, GL20.GL_TRIANGLES);
+          }
+          // healthbar
+          {
+            float barW=.2f;
+            float barH=.05f;
+            {
+              sp.setUniformf("u_color", 1,1,1,1);
+              Matrix4 mat = new Matrix4();
+              mat.translate(.5f-barW/2f+barW/2f*(1-guy.getHP()), .5f-barH/2f, 0);
+              mat.scl(barW*guy.getHP(), barH, 1);
+              sp.setUniformMatrix("u_objectMatrix", mat);
+              red.bind();
+              fullui.render(sp, GL20.GL_TRIANGLES);
+            }
+            {
+              sp.setUniformf("u_color", .3f,.3f,.3f,1f);
+              Matrix4 mat = new Matrix4();
+              mat.translate(.5f-barW/2f, .5f-barH/2f, 0);
+              mat.scl(barW, barH, 1);
+              sp.setUniformMatrix("u_objectMatrix", mat);
+              red.bind();
+              fullui.render(sp, GL20.GL_TRIANGLES);
+            }
+          }
         }
       }
       sp.end();
@@ -2274,3 +2470,5 @@ public class Icmm extends ApplicationAdapter {
       reset();
   }
 }
+
+
