@@ -606,7 +606,8 @@ class Crystal extends Obj
     offY=0;//.25f;
   }
   void tog(Obj o){
-    game.toInv(this);
+    if (inWorld)
+      game.toInv(this);
   }
   void act(){
     Icmm.ObjTester iot = new Icmm.ObjTester(){
@@ -1635,7 +1636,7 @@ public class Icmm extends ApplicationAdapter {
     uicam.direction.set(0,0,-1);
     uicam.update();// only do this here?
     float ratio = (float)Gdx.graphics.getHeight()/(float)Gdx.graphics.getWidth();
-    cam = new PerspectiveCamera(90,1f,ratio);
+    cam = new PerspectiveCamera(100,1f,ratio);
     cam.near = .01f;
     cam.position.set(0,.75f,0);
     cam.direction.set(0,0,1);
