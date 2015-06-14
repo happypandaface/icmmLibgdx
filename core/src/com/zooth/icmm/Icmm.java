@@ -56,10 +56,13 @@ class Obj
   boolean dead;// different than remove
   float hp;float getHP(){return hp;}
   boolean inWorld=true;
+  Array<Obj> dontHit=new Array<Obj>();
+  void addDontHit(Obj o){dontHit.add(o);}
   float radius=-1;// if bigger than 0 it means the obj is hittable (not solid)
   boolean canTog;
   Vector3 pos=new Vector3();void setPos(int x,int y){pos=new Vector3(x,0,y);}
   float ms=0;
+  float vel=0;// velocity degrades unlike ms
   Vector2 getPos(){return new Vector2(pos.x,pos.z);}
   void draw(ShaderProgram sp){// called when invoked
     if (tex!=null&&inWorld){
@@ -101,14 +104,22 @@ class Obj
     return null;
   }
   Icmm.TileTester customTileTester=null;
-  void step(float dt){oldStep(dt);}
+  void step(float dt){if(inWorld){if(ai!=null){ai.act(this,dt);}oldStep(dt);}}
   void oldStep(float dt){// per fram
-    if (ms>0){
+    float effms=ms;//effective movespeed
+    if(vel>0){
+      vel-=dt;
+      if (vel<0)
+        vel=0;
+      effms=vel;
+    }
+    if (effms>0){
       Vector2 dir = new Vector2(1,0).rotate(angle);
-      dir.scl(dt*ms);
+      dir.scl(dt*effms);
       Icmm.RectRTN rr = new Icmm.RectRTN();
       if (customTileTester!=null)
         rr.tt=customTileTester;
+      rr.dontHit=dontHit;
       Vector3 pos2=game.rectify(pos.cpy().add(dir.x, 0, dir.y),this,rr);
       if (pos2!=null)
         pos.set(pos2);
@@ -132,10 +143,13 @@ class Obj
     o.inWorld=true;
     o.pos=pos.cpy();
   }
+  void dropSpecial(Obj o){
+  }
   void dropInv(){
     for (Obj o : inv){
       o.inWorld=true;
       o.pos=pos.cpy().add((float)Math.random()*.01f,0,0);
+      dropSpecial(o);
     }
     inv.clear();
   }
@@ -154,6 +168,7 @@ class Guy extends Obj
     radius=.3f;
   }
   void damaged(float f, Obj o){
+    game.tweenAng(o.getPos().cpy().sub(getPos()).angle());
     game.playSound("wizD", getPos());
     hp -= f*.4f;
     if (hp<=0){
@@ -193,12 +208,16 @@ class Sword extends Obj
       if (setup){
         Icmm.ObjTester iot = new Icmm.ObjTester(){
           boolean works(Obj o){
-            return !(o instanceof Guy)&&o.canHit;
+            return !(o instanceof Guy)&&o.canHit&&o.inWorld;
           }
         };
         Obj bestObj = game.getFirst(this, 70, 1f, iot);
         if (bestObj != null){
+          if(Icmm.dev==1){
+          bestObj.damaged(10f,this);
+          }else{
           bestObj.damaged(1f,this);
+          }
         }
       }
     }
@@ -259,8 +278,9 @@ class Exp extends Obj
     Array<Obj> hit = game.getRadius(.5f,getPos());
     for(int i = 0; i<hit.size;++i){
       Obj o = hit.get(i);
-      if (o!=dontKill)
+      if (o!=dontKill){
         o.damaged(1f, this);
+      }
     }
   }
   float expTimer=0;
@@ -310,7 +330,7 @@ class FB extends Obj
     super.step(dt);
   }
   void getHit(Obj o){
-    if (o!=dontKill)
+    if (!remove&&o!=dontKill)
     {
       Exp exp = new Exp();
       exp.dontKill=dontKill;
@@ -393,7 +413,7 @@ class Portal extends Obj
   }
   void step(float dt){
     game.loopSound("portal", getPos(), this);
-    gooCount+=dt;
+    gooCount+=dt*3f;
     if (gooCount>gooMax)
       gooCount-=gooMax;
     if (gooCount>gooMax*.666666f)
@@ -595,6 +615,36 @@ class Reliquary extends Obj
     crystal=c;
   }
 }
+class Chest extends Obj
+{
+  Chest(){
+    tex="chest.png";
+    billboard=true;
+    canTog=true;
+    solid=true;
+    radius=.2f;
+    stationary=true;
+  }
+  boolean open=false;
+  Obj lastAct=null;
+  void tog(Obj o){
+    lastAct=o;
+    if(!open){
+      dropInv();
+      open=true;
+      tex="chestO.png";
+    }else
+    if(open){
+      open=false;
+      tex="chest.png";
+    }
+  }
+  void dropSpecial(Obj o){
+    o.angle=lastAct.getPos().cpy().sub(o.getPos()).angle();
+    o.vel=.5f;
+    o.dontHit.add(this);
+  }
+}
 class Crystal extends Obj
 {
   Crystal(){
@@ -623,6 +673,23 @@ class Crystal extends Obj
       remove=true;
       ((Reliquary)bestObj).getCrystal(this);
     }
+  }
+}
+class Flask extends Obj
+{
+  Flask(){
+    tex="flaskE.png";
+    sel="flaskEH.png";
+    billboard=true;
+    scale=.5f;
+    canTog=true;
+    offY=0;//.25f;
+  }
+  void tog(Obj o){
+    if (inWorld)
+      game.toInv(this);
+  }
+  void act(){
   }
 }
 class Grave extends Sign
@@ -705,6 +772,52 @@ class Dog extends Obj
       dead=true;
       ms=0;
       game.playSound("dogD", getPos());
+    }
+  }
+}
+class Spider extends Obj
+{
+  Spider(){
+    radius=.25f;
+    tex="spider.png";
+    billboard=true;
+    canHit=true;
+    ms=1f;
+    angle=90;
+  }
+  float changeAngCount=0;
+  float changeAngCountMax=2f;
+  float changeAngCountMin=1f;
+  void fight(){
+    game.playSound("swordW", getPos());
+    angle=game.getGuyPos().cpy().sub(getPos()).angle();
+    Icmm.ObjTester iot = new Icmm.ObjTester(){
+      boolean works(Obj o){
+        return o.inWorld&&o.canHit;
+      }
+    };
+    Obj bestObj = game.getFirst(this, 90, 1f, iot);
+    if (bestObj != null){
+      bestObj.damaged(1f,this);
+    }
+  }
+  String getTex(){
+    if ((int)(changeAngCount*4)%2==0){
+      return "spiderW1.png";
+    }else{
+      return "spiderW2.png";
+    }
+  }
+  void damaged(float f, Obj by){
+    if (!dead){
+      remove=true;
+      Grave o = new Grave();
+      o.msg="Here lies spider, son of spider";
+      o.pos=pos;
+      game.addObj(o);
+      dead=true;
+      ms=0;
+      game.playSound("ratD", getPos());
     }
   }
 }
@@ -863,7 +976,7 @@ class Knight extends Obj
     angle=game.getGuyPos().cpy().sub(getPos()).angle();
     Icmm.ObjTester iot = new Icmm.ObjTester(){
       boolean works(Obj o){
-        return o.canHit;
+        return o.inWorld&&o.canHit;
       }
     };
     Obj bestObj = game.getFirst(this, 90, 1f, iot);
@@ -925,7 +1038,7 @@ class Knight extends Obj
             angle=game.getGuyPos().cpy().sub(getPos()).angle();
             Icmm.ObjTester iot = new Icmm.ObjTester(){
               boolean works(Obj o){
-                return o.canHit;
+                return o.inWorld&&o.canHit;
               }
             };
             Obj bestObj = game.getFirst(this, 90, 1f, iot);
@@ -966,7 +1079,7 @@ class Knight extends Obj
           }
           changeAngCount=changeAngCountMin+(float)Math.random()*(changeAngCountMax-changeAngCountMin);
         }
-        super.step(dt);
+        super.oldStep(dt);
         /*
         castCount -= dt;
         if (castCount<=0){
@@ -1269,6 +1382,8 @@ class FightAI extends AI{
   }
 }
 public class Icmm extends ApplicationAdapter {
+  static int dev=0;
+  Array<Character> devPressed=new Array<Character>();// for entering dev code
   static class ObjTester{
     boolean works(Obj o){return true;}
   }
@@ -1411,10 +1526,11 @@ public class Icmm extends ApplicationAdapter {
   void stopLoop(Obj o){
     if (o.loop!=null)
     {
+      if (o instanceof Portal)
+        Gdx.app.log("portal", "stoploop");
       o.loop.stop(o.soundLoop);
       // reset so we dont try to keep playing it
       o.loop=null;
-      o.soundLoop=-1;
     }
   }
   void loopSound(String s, Vector2 pos, Obj o){
@@ -1422,6 +1538,8 @@ public class Icmm extends ApplicationAdapter {
     float maxDist=10f;
     float pow=4f;
     float vol = (float)Math.pow((maxDist-diff.len())/maxDist,pow);
+    if (maxDist<diff.len())
+      vol=0;
     if (vol > 0){
       float pan = normAngle(new Vector2(cam.direction.x,cam.direction.z).angle()-diff.angle())/180f;
       // pan wasn't even working, dunno if left and right are correct
@@ -1485,6 +1603,9 @@ public class Icmm extends ApplicationAdapter {
   boolean winning=false;
   float deathTimer = 0;
   Camera cam;
+  float swivelAngle;
+  boolean swiveling=false;
+  void tweenAng(float ang){swiveling=true;swivelAngle=ang;};
   Camera uicam;
   ShaderProgram sp;
   static AssetManager ass = new AssetManager(); 
@@ -1530,6 +1651,16 @@ public class Icmm extends ApplicationAdapter {
     ass.load("stone.png", Texture.class);
     ass.load("pedestal.png", Texture.class);
     ass.load("crystal.png", Texture.class);
+    ass.load("flaskR1.png", Texture.class);
+    ass.load("flaskR2.png", Texture.class);
+    ass.load("flaskR1H.png", Texture.class);
+    ass.load("flaskR2H.png", Texture.class);
+    ass.load("flaskG1.png", Texture.class);
+    ass.load("flaskG2.png", Texture.class);
+    ass.load("flaskG1H.png", Texture.class);
+    ass.load("flaskG2H.png", Texture.class);
+    ass.load("flaskE.png", Texture.class);
+    ass.load("flaskEH.png", Texture.class);
     ass.load("crystalDoor.png", Texture.class);
     ass.load("reliquary.png", Texture.class);
     ass.load("reliquaryDone.png", Texture.class);
@@ -1548,6 +1679,9 @@ public class Icmm extends ApplicationAdapter {
     ass.load("sword1.png", Texture.class);
     ass.load("sword2.png", Texture.class);
     ass.load("swordW.png", Texture.class);
+    ass.load("spiderW1.png", Texture.class);
+    ass.load("spiderW2.png", Texture.class);
+    ass.load("spider.png", Texture.class);
     ass.load("sign.png", Texture.class);
     ass.load("gasBall.png", Texture.class);
     ass.load("wiz.png", Texture.class);
@@ -1591,6 +1725,8 @@ public class Icmm extends ApplicationAdapter {
     ass.load("hand2.png", Texture.class);
     ass.load("doorC.png", Texture.class);
     ass.load("doorO.png", Texture.class);
+    ass.load("chest.png", Texture.class);
+    ass.load("chestO.png", Texture.class);
     ass.load("lionF.png", Texture.class);
     ass.load("lionFF.png", Texture.class);
     ass.load("lionSF.png", Texture.class);
@@ -1620,9 +1756,8 @@ public class Icmm extends ApplicationAdapter {
     for (int x=srtx;x<endx;++x)
       for (int y=srty;y<endy;++y)
         tiles[x][y] = new Tile().setPos(x,y);
-    if (objs!=null){
-      forceRemoveObjs();
-    }
+    swiveling=false;
+    forceRemoveObjs();
     Gdx.app.log("icmm", "reset");
     anim=null;
     dying=false;
@@ -1721,20 +1856,22 @@ public class Icmm extends ApplicationAdapter {
       1,2,3,
       3,1,0
     });
-    inWorld = new Mesh(true, 4, 6,
-      new VertexAttribute(VertexAttributes.Usage.Position, 3, "a_position"),
-      new VertexAttribute(VertexAttributes.Usage.TextureCoordinates, 2, "a_uv"));
-    float f = 0;//-.2f;
-    inWorld.setVertices(new float[]{
-      -.5f,0,f, 1,1,
-      -.5f,1,f, 1,0,
-      .5f,1,f,  0,0,
-      .5f,0,f,  0,1
-    });
-    inWorld.setIndices(new short[]{
-      1,2,3,
-      3,1,0
-    });
+    {
+      inWorld = new Mesh(true, 4, 6,
+        new VertexAttribute(VertexAttributes.Usage.Position, 3, "a_position"),
+        new VertexAttribute(VertexAttributes.Usage.TextureCoordinates, 2, "a_uv"));
+      float f = 0;//-.2f;
+      inWorld.setVertices(new float[]{
+        -.5f,0,f, 1,1,
+        -.5f,1,f, 1,0,
+        .5f,1,f,  0,0,
+        .5f,0,f,  0,1
+      });
+      inWorld.setIndices(new short[]{
+        1,2,3,
+        3,1,0
+      });
+    }
     inWorldR = new Mesh(true, 4, 6,
       new VertexAttribute(VertexAttributes.Usage.Position, 3, "a_position"),
       new VertexAttribute(VertexAttributes.Usage.TextureCoordinates, 2, "a_uv"));
@@ -1829,11 +1966,6 @@ public class Icmm extends ApplicationAdapter {
         addObj(o);
       }
       {
-        Obj o = new Portal();
-        o.setPos(7,14);
-        addObj(o);
-      }
-      {
         Obj o = new Wiz();
         o.setPos(7,15);
         addObj(o);
@@ -1908,6 +2040,11 @@ public class Icmm extends ApplicationAdapter {
       for (int y = 11; y < 14; ++y){
         tileAt(7,y).setExists(true).type |= Tile.TUNNEL;
         tileAt(8,y).setExists(true).type |= Tile.TUNNEL;
+      {
+        Obj o = new Portal();
+        o.setPos(7,14);
+        addObj(o);
+      }
       tileAt(1,2).type = Tile.PIT;
       }
       {
@@ -1950,6 +2087,11 @@ public class Icmm extends ApplicationAdapter {
       {
         Obj o = new Knight();
         o.setPos(0,4);
+        {
+          Obj f = new Flask();
+          addObj(f);
+          o.toInv(f,null);
+        }
         addObj(o);
       }
       for (int x = 5; x < 10; ++x)
@@ -1974,7 +2116,7 @@ public class Icmm extends ApplicationAdapter {
       {
         Obj w = new Knight();
         w.setPos(15,5);
-        w.setAI(new WanderAI());
+        w.setAI(new WanderFightAI());
         addObj(w);
         {
           Obj o=new Crystal();
@@ -2018,17 +2160,95 @@ public class Icmm extends ApplicationAdapter {
         t2.onFire=true;
         addObj(t2);
       }
-      for (int y = 12; y < 15; ++y)
-        tileAt(6,y).setExists(true).type |= Tile.TUNNEL;
-      {
-        Obj o = new Portal();
-        o.setPos(6,14);
-        addObj(o);
-      }
       for (int x = 9; x < 14; ++x)
         tileAt(x,11).setExists(true).type |= Tile.TUNNEL;
       for (int y = 9; y < 12; ++y)
         tileAt(14,y).setExists(true).type |= Tile.TUNNEL;
+      for (int y = 12; y < 15; ++y)
+        tileAt(6,y).setExists(true).type |= Tile.TUNNEL;
+      for (int x = 4; x < 9; ++x)
+        for (int y = 15; y < 20; ++y)
+          tileAt(x,y).setExists(true);
+      {
+        Obj p = new Pedestal();
+        p.setPos(6,16);
+        addObj(p);
+        Obj o = new LionHead();
+        o.setPos(6,16);
+        o.angle=0;
+        addObj(o);
+      }
+      for (int x = 9; x < 27; ++x)
+        tileAt(x,16).setExists(true).type |= Tile.TUNNEL;
+      for (int x = 9; x < 27; ++x)
+        if (x < 13){
+          tileAt(x,18).setExists(true).type |= Tile.TUNNEL;
+        }else
+        if (x < 19){
+          tileAt(x,20).setExists(true).type |= Tile.TUNNEL;
+        }else{
+          tileAt(x,18).setExists(true).type |= Tile.TUNNEL;
+        }
+      for (int xi = 11; xi < 24; xi+=6)
+        for (int x = xi; x < xi+4; ++x)
+          for (int y = 15; y < 20; ++y)
+            tileAt(x,y).setExists(true).type &= ~Tile.TUNNEL;
+      for (int x = 27; x < 30; ++x)
+        tileAt(x,17).setExists(true).type |= Tile.TUNNEL;
+      {
+        for (int x = 11; x < 11+6*3; x += 6){
+          {
+            CrystalDoor d = new CrystalDoor();
+            d.setPos(x-1,16);
+            addObj(d);
+            {
+              Obj p = new Pedestal();
+              p.setPos(x,15);
+              addObj(p);
+              Reliquary r = new Reliquary();
+              r.addDoor(d);
+              r.setPos(x,15);
+              addObj(r);
+            }
+          }
+          Obj w = new Chest();
+          w.setPos(x,17);
+          //w.setAI(new WanderFightAI());
+          addObj(w);
+          {
+            Obj o=new Spider();
+            addObj(o);
+            o.setAI(new WanderFightAI());
+            w.toInv(o,null);
+          }
+          {
+            Obj o=new Crystal();
+            addObj(o);
+            w.toInv(o,null);
+          }
+        }
+      }
+      {
+        LockedDoor l1 = new LockedDoor();
+        l1.setPos(27,17);
+        addObj(l1);
+        Torch t1 = new Torch();
+        t1.addDoor(l1);
+        t1.setPos(26,16);
+        addObj(t1);
+        Torch t2 = new Torch();
+        t2.addDoor(l1);
+        t2.setPos(26,18);
+        t1.addTorch(t2);
+        t2.addTorch(t1);
+        t2.onFire=true;
+        addObj(t2);
+      }
+      {
+        Obj o = new Portal();
+        o.setPos(28,17);
+        addObj(o);
+      }
     }
 	}
   Obj anim = null;
@@ -2100,6 +2320,7 @@ public class Icmm extends ApplicationAdapter {
     boolean hit=false;
     Obj obj=null;
     TileTester tt=new TileTester();
+    Array<Obj> dontHit;
   }
   Vector3 solidRectify(Vector3 pos, Obj obj, RectRTN rr){
     Vector2 rtn = new Vector2(pos.x, pos.z);
@@ -2110,9 +2331,15 @@ public class Icmm extends ApplicationAdapter {
       //shove out of objs
       for (int i = 0; i < objs.size; ++i){
         Obj o = objs.get(i);
-        if (o!=obj&&o!=null)
+        if (o.inWorld&&o!=obj&&o!=null)
         {
-          if (o.solid){
+          boolean inDontHit = false;
+          if (rr.dontHit!=null)
+            for(Obj odh : rr.dontHit){
+              if (odh==o)
+                inDontHit=true;
+            }
+          if (o.solid&&!inDontHit){
             float shoveX=o.shoveX;
             float shoveY=o.shoveY;
             float dx = rtn.x-o.pos.x;
@@ -2174,30 +2401,32 @@ public class Icmm extends ApplicationAdapter {
     if (tileExists(x,y)){
       float margin = .25f;
       //shove out of objs
-      for (int i = 0; i < objs.size; ++i){
-        Obj o = objs.get(i);
-        if (o!=obj&&o!=null)
-        {
-          if (!o.stationary&&o.radius>0)
+      if (obj.inWorld){
+        for (int i = 0; i < objs.size; ++i){
+          Obj o = objs.get(i);
+          if (o!=obj&&o.inWorld)
           {
-            Vector2 diff = rtn.cpy().sub(o.getPos());
-            float dist = diff.len()-o.radius-obj.radius;
-            if (dist<0)
+            if (o.radius>0)
             {
-              rr.hit=true;
-              rr.obj=o;
-              o.getHit(obj);
-              obj.getHit(o);
-              float totWeight=o.weight+obj.weight;
-              if (!obj.stationary)
-                rtn.add(diff.nor().scl(-dist*o.weight/totWeight));
-              if (!o.stationary)
+              Vector2 diff = rtn.cpy().sub(o.getPos());
+              float dist = diff.len()-o.radius-obj.radius;
+              if (dist<0)
               {
-                Vector2 newOPos = o.getPos().cpy().add(diff.nor().scl(dist*obj.weight/totWeight));
-                Vector3 n3 = new Vector3(newOPos.x, o.pos.y, newOPos.y);
-                n3 = solidRectify(n3, o, new RectRTN());
-                if (n3!=null)
-                  o.pos.set(n3);
+                rr.hit=true;
+                rr.obj=o;
+                o.getHit(obj);
+                obj.getHit(o);
+                float totWeight=(!obj.stationary?o.weight:0)+(!o.stationary?obj.weight:0);
+                if (!obj.stationary)
+                  rtn.add(diff.nor().scl(-dist*o.weight/totWeight));
+                if (!o.stationary)
+                {
+                  Vector2 newOPos = o.getPos().cpy().add(diff.nor().scl(dist*obj.weight/totWeight));
+                  Vector3 n3 = new Vector3(newOPos.x, o.pos.y, newOPos.y);
+                  n3 = solidRectify(n3, o, new RectRTN());
+                  if (n3!=null)
+                    o.pos.set(n3);
+                }
               }
             }
           }
@@ -2207,6 +2436,8 @@ public class Icmm extends ApplicationAdapter {
     return solidRectify(new Vector3(rtn.x,pos.y,rtn.y),obj,rr);
   }
 
+  float lsm = 0;// look speed momentum
+  float msm = 0;// move speed momentum
   float maxStep = .05f;
 	@Override
 	public void render () {
@@ -2225,21 +2456,101 @@ public class Icmm extends ApplicationAdapter {
         held.pos.set(cam.position);
         held.angle=guy.getDir().angle();
         if (!dying){
-          float ls = 170f;//lookspeed
-          float ms = 5f;//movespeed
+          float ls = 170f;//lookspeed max
+          float lsr = 670f;//lookspeed for reactions
+          float lsp = 670f;//lookspeed add per sec
+          float lsd = 870f;//lookspeed deg per sec
+          float ms = 5f;//movespeed max
+          float msp = 15f;//movespeed add per sec
+          float msd = 15f;//movespeed add per sec
           Vector3 newPos = cam.position.cpy();
-          if (Gdx.input.isKeyPressed(Input.Keys.L)){
-            cam.rotate(Vector3.Y, -dt*ls);
+          // check for dev code
+          Character addPressed=' ';
+          if (Gdx.input.isKeyJustPressed(Input.Keys.Z)){addPressed='Z';}
+          if (Gdx.input.isKeyJustPressed(Input.Keys.V)){addPressed='V';}
+          if (Gdx.input.isKeyJustPressed(Input.Keys.C)){addPressed='C';}
+          if (Gdx.input.isKeyJustPressed(Input.Keys.X)){addPressed='X';}
+          int maxCharBuf=9;if (addPressed!=' '){
+            devPressed.add(addPressed);if(devPressed.size>maxCharBuf){devPressed.removeIndex(0);}
+            String devStr="ZCXV";
+            if(devPressed.size>=devStr.length()){
+              String testDev="";
+              for(int i=0;i<devStr.length();++i){
+                testDev+=devPressed.get(devPressed.size-devStr.length()+i);}
+              if(testDev.equals(devStr)){
+                if(Icmm.dev==0){Icmm.dev=1;Gdx.app.log("icmm","dev mode on");}else{
+                Icmm.dev=0;Gdx.app.log("icmm","dev mode off");}}
+            }
           }
-          if (Gdx.input.isKeyPressed(Input.Keys.J)){
-            cam.rotate(Vector3.Y, dt*ls);
+          if (swiveling){
+            Vector2 flatDir=new Vector2(cam.direction.x,cam.direction.z);
+            float curAng=flatDir.angle();
+            float diff=Icmm.normAngle(curAng-swivelAngle);
+            if(Math.abs(diff)<30){
+              swiveling=false;
+            }else{
+              float dir=diff/Math.abs(diff);
+              if (dir*dt*lsr>Math.abs(diff)){
+                swiveling=false;
+                cam.rotate(Vector3.Y,diff);
+              }else{
+                cam.rotate(Vector3.Y,dir*dt*lsr);
+              }
+            }
+          }else{
+            if (Gdx.input.isKeyPressed(Input.Keys.L)){
+              if(lsm>0)lsm=0;
+              lsm-=dt*lsp;
+              if (lsm<-ls)
+                lsm=-ls;
+            }
+            if (Gdx.input.isKeyPressed(Input.Keys.J)){
+              if(lsm<0)lsm=0;
+              lsm+=dt*lsp;
+              if (lsm>ls)
+                lsm=ls;
+            }
+            if (!Gdx.input.isKeyPressed(Input.Keys.L)&&!Gdx.input.isKeyPressed(Input.Keys.J)){
+              if (lsm>0){
+                lsm-=dt*lsd;
+                if (lsm<0)
+                  lsm=0;
+              }
+              if (lsm<0){
+                lsm+=dt*lsd;
+                if (lsm>0)
+                  lsm=0;
+              }
+            }
+            cam.rotate(Vector3.Y, dt*lsm);
           }
           if (Gdx.input.isKeyPressed(Input.Keys.I)){
-            newPos.add(cam.direction.cpy().scl(dt*ms));
+            if (msm<0)
+              msm=0;
+            msm+=dt*msp;
+            if (msm>ms)
+              msm=ms;
           }
           if (Gdx.input.isKeyPressed(Input.Keys.K)){
-            newPos.add(cam.direction.cpy().scl(-dt*ms));
+            if (msm>0)
+              msm=0;
+            msm-=dt*msp;
+            if (msm<-ms)
+              msm=-ms;
           }
+          if (!Gdx.input.isKeyPressed(Input.Keys.I)&&!Gdx.input.isKeyPressed(Input.Keys.K)){
+            if (msm>0){
+              msm-=dt*msd;
+              if(msm<0)
+                msm=0;
+            }
+            if (msm<0){
+              msm+=dt*msd;
+              if(msm>0)
+                msm=0;
+            }
+          }
+          newPos.add(cam.direction.cpy().scl(dt*msm));
           if (anim==null&&Gdx.input.isKeyJustPressed(Input.Keys.E)){
             switchInv(1);
           }
@@ -2250,14 +2561,21 @@ public class Icmm extends ApplicationAdapter {
             if (Gdx.input.isKeyPressed(Input.Keys.SHIFT_LEFT)){
               level++;
             }
+            if (Gdx.input.isKeyPressed(Input.Keys.SHIFT_RIGHT)){
+              level--;
+            }
             needsReset=true;
           }
           if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)&&anim==null){
             held.act();
           }
-          newPos = rectify(newPos,guy);
-          if (newPos != null)
+          if (Icmm.dev==1){
             cam.position.set(newPos);
+          }else{
+            newPos = rectify(newPos,guy);
+            if (newPos != null)
+              cam.position.set(newPos);
+          }
           // do held obj anim (also logic)
           if (anim!=null)
             if (anim.actf(dt))
@@ -2471,5 +2789,3 @@ public class Icmm extends ApplicationAdapter {
       reset();
   }
 }
-
-
