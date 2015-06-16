@@ -79,7 +79,7 @@ class Obj
       mat.translate(new Vector3(pos.x,(1-scale/2f)-.5f+offY,pos.z).add(add));
       float ang = angle;
       if (billboard){
-        Vector2 viewp = new Vector2(game.cam.position.x, game.cam.position.z); 
+        Vector2 viewp = new Vector2(game.getCurrCamPos2().x, game.getCurrCamPos2().y); 
         Vector2 thisp = new Vector2(pos.x, pos.z); 
         ang = thisp.cpy().sub(viewp).angle();
       }
@@ -495,7 +495,7 @@ class LionHead extends Obj
   float fireCount=0;
   float fireCastTime=2.5f;
   String getTex(){
-    Vector2 camp = game.getCamPos().cpy();
+    Vector2 camp = game.getCurrCamPos2().cpy();
     float camAng = camp.sub(getPos()).angle();
     float diff = Icmm.normAngle(camAng-angle);
     if (diff < 45 && diff > -45){
@@ -845,7 +845,7 @@ class Rat extends Obj
     }
   }
   String getTex(){
-    Vector2 camp = game.getCamPos().cpy();
+    Vector2 camp = new Vector2(game.getCurrCamPos().x, game.getCurrCamPos().z);
     float camAng = camp.sub(getPos()).angle();
     //float camAng = new Vector2(game.cam.direction.x, game.cam.direction.z).angle();
     float diff = Icmm.normAngle(camAng-angle);
@@ -1576,6 +1576,12 @@ public class Icmm extends ApplicationAdapter {
       ass.get(s+".ogg", Sound.class).play(vol, 1f, pan);
     }
   }
+  Vector2 getCurrCamPos2(){
+    return new Vector2(currCam.position.x,currCam.position.z);
+  }
+  Vector3 getCurrCamPos(){
+    return currCam.position.cpy();
+  }
   Vector2 getCamPos(){
     return new Vector2(cam.position.x, cam.position.z);
   }
@@ -1603,10 +1609,12 @@ public class Icmm extends ApplicationAdapter {
   boolean winning=false;
   float deathTimer = 0;
   Camera cam;
+  Camera cam2;
   float swivelAngle;
   boolean swiveling=false;
   void tweenAng(float ang){swiveling=true;swivelAngle=ang;};
   Camera uicam;
+  Camera currCam;
   ShaderProgram sp;
   static AssetManager ass = new AssetManager(); 
   Mesh floor;
@@ -1775,6 +1783,11 @@ public class Icmm extends ApplicationAdapter {
     cam.near = .01f;
     cam.position.set(0,.75f,0);
     cam.direction.set(0,0,1);
+    cam2 = new PerspectiveCamera(100,1f,ratio);
+    cam2.near = .01f;
+    cam2.position.set(0,.75f,0);
+    cam2.direction.set(0,0,1);
+    cam2.update();
     sp = new ShaderProgram(Gdx.files.internal("vert.glsl"), Gdx.files.internal("frag.glsl"));
     Gdx.app.log("icmm", "shader log:"+sp.getLog());
     float wh=10;// Wall height
@@ -2611,140 +2624,159 @@ public class Icmm extends ApplicationAdapter {
       Gdx.gl.glEnable(GL20.GL_BLEND);
       sp.begin();
       cam.update();
-      sp.setUniformMatrix("u_projectionViewMatrix", cam.combined);
-      sp.setUniformf("u_light", cam.position.cpy().add(0,0,0));
+      // code for visions:
+      sp.setUniformf("u_circ", new Vector3((float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,600f));
       sp.setUniformf("u_color", 1,1,1,1);
-      if (dying&&!winning)
-        sp.setUniformf("u_light", cam.position.cpy().add(0,-1*deathTimer*2f,0));
-      // draw box:
-      {
-        Texture stone  = ass.get("stone.png", Texture.class);
-        stone.setWrap(Texture.TextureWrap.Repeat,Texture.TextureWrap.Repeat);
-        stone.bind();
-        for (int x = srtx; x < endx; ++x){
-          for (int y = srty; y < endy; ++y){
-            if (tileExists(x,y)){
-              if ((tileAt(x,y).type&~Tile.PIT)>0)
-              {
-                Matrix4 mat = new Matrix4();
-                mat.setTranslation(x,0,y);
-                sp.setUniformMatrix("u_objectMatrix", mat);
-                floor.render(sp, GL20.GL_TRIANGLES);
-              }
-              if ((tileAt(x,y).type&Tile.TUNNEL)>0)
-              {
-                Matrix4 mat = new Matrix4();
-                mat.setTranslation(x,tgh,y);
-                sp.setUniformMatrix("u_objectMatrix", mat);
-                floor.render(sp, GL20.GL_TRIANGLES);
-              }
-              if (!tileExists(x-1,y)){
-                Matrix4 mat = new Matrix4();
-                mat.setTranslation(x,0,y);
-                sp.setUniformMatrix("u_objectMatrix", mat);
-                wall.render(sp, GL20.GL_TRIANGLES);
-              }else{
-                Tile t = tileAt(x-1,y);
-                if ((t.type&(~Tile.OPEN))>0){
+      sp.setUniformf("u_brightness", 10.0f);
+      for(int j = 0; j < 2; ++j){
+        Gdx.gl.glClear(GL20.GL_DEPTH_BUFFER_BIT);
+        if (j==0){
+          sp.setUniformMatrix("u_projectionViewMatrix", cam.combined);
+          sp.setUniformf("u_circ", new Vector3((float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,600f));
+          sp.setUniformf("u_color", 1,1,1,1);
+          currCam = cam;
+        }else{
+          sp.setUniformMatrix("u_projectionViewMatrix", cam2.combined);
+          sp.setUniformf("u_circ", new Vector3((float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,100f));
+          sp.setUniformf("u_color", 1,1,1,.4f);
+          currCam = cam2;
+        }
+        sp.setUniformf("u_light", currCam.position.cpy().add(0,0,0));
+        if (dying&&!winning)
+          sp.setUniformf("u_light", currCam.position.cpy().add(0,-1*deathTimer*2f,0));
+        // draw box:
+        {
+          Texture stone  = ass.get("stone.png", Texture.class);
+          stone.setWrap(Texture.TextureWrap.Repeat,Texture.TextureWrap.Repeat);
+          stone.bind();
+          for (int x = srtx; x < endx; ++x){
+            for (int y = srty; y < endy; ++y){
+              if (tileExists(x,y)){
+                if ((tileAt(x,y).type&~Tile.PIT)>0)
+                {
                   Matrix4 mat = new Matrix4();
                   mat.setTranslation(x,0,y);
                   sp.setUniformMatrix("u_objectMatrix", mat);
-                  if ((t.type&Tile.PIT)>0)
-                    pitWall.render(sp, GL20.GL_TRIANGLES);
-                  else
-                    tunnelWall.render(sp, GL20.GL_TRIANGLES);
+                  floor.render(sp, GL20.GL_TRIANGLES);
                 }
-              }
-              if (!tileExists(x+1,y)){
-                Matrix4 mat = new Matrix4();
-                mat.translate(x,0,y);
-                mat.rotate(Vector3.Y, 180);
-                sp.setUniformMatrix("u_objectMatrix", mat);
-                wall.render(sp, GL20.GL_TRIANGLES);
-              }else{
-                Tile t = tileAt(x+1,y);
-                if ((t.type&(~Tile.OPEN))>0){
+                if ((tileAt(x,y).type&Tile.TUNNEL)>0)
+                {
+                  Matrix4 mat = new Matrix4();
+                  mat.setTranslation(x,tgh,y);
+                  sp.setUniformMatrix("u_objectMatrix", mat);
+                  floor.render(sp, GL20.GL_TRIANGLES);
+                }
+                if (!tileExists(x-1,y)){
+                  Matrix4 mat = new Matrix4();
+                  mat.setTranslation(x,0,y);
+                  sp.setUniformMatrix("u_objectMatrix", mat);
+                  wall.render(sp, GL20.GL_TRIANGLES);
+                }else{
+                  Tile t = tileAt(x-1,y);
+                  if ((t.type&(~Tile.OPEN))>0){
+                    Matrix4 mat = new Matrix4();
+                    mat.setTranslation(x,0,y);
+                    sp.setUniformMatrix("u_objectMatrix", mat);
+                    if ((t.type&Tile.PIT)>0)
+                      pitWall.render(sp, GL20.GL_TRIANGLES);
+                    else
+                      tunnelWall.render(sp, GL20.GL_TRIANGLES);
+                  }
+                }
+                if (!tileExists(x+1,y)){
                   Matrix4 mat = new Matrix4();
                   mat.translate(x,0,y);
                   mat.rotate(Vector3.Y, 180);
                   sp.setUniformMatrix("u_objectMatrix", mat);
-                  if ((t.type&Tile.PIT)>0)
-                    pitWall.render(sp, GL20.GL_TRIANGLES);
-                  else
-                    tunnelWall.render(sp, GL20.GL_TRIANGLES);
+                  wall.render(sp, GL20.GL_TRIANGLES);
+                }else{
+                  Tile t = tileAt(x+1,y);
+                  if ((t.type&(~Tile.OPEN))>0){
+                    Matrix4 mat = new Matrix4();
+                    mat.translate(x,0,y);
+                    mat.rotate(Vector3.Y, 180);
+                    sp.setUniformMatrix("u_objectMatrix", mat);
+                    if ((t.type&Tile.PIT)>0)
+                      pitWall.render(sp, GL20.GL_TRIANGLES);
+                    else
+                      tunnelWall.render(sp, GL20.GL_TRIANGLES);
+                  }
                 }
-              }
-              if (!tileExists(x,y-1)){
-                Matrix4 mat = new Matrix4();
-                mat.translate(x,0,y);
-                mat.rotate(Vector3.Y, -90);
-                sp.setUniformMatrix("u_objectMatrix", mat);
-                wall.render(sp, GL20.GL_TRIANGLES);
-              }else{
-                Tile t = tileAt(x,y-1);
-                if ((t.type&~Tile.OPEN)>0){
+                if (!tileExists(x,y-1)){
                   Matrix4 mat = new Matrix4();
                   mat.translate(x,0,y);
                   mat.rotate(Vector3.Y, -90);
                   sp.setUniformMatrix("u_objectMatrix", mat);
-                  if ((t.type&Tile.PIT)>0)
-                    pitWall.render(sp, GL20.GL_TRIANGLES);
-                  else
-                    tunnelWall.render(sp, GL20.GL_TRIANGLES);
+                  wall.render(sp, GL20.GL_TRIANGLES);
+                }else{
+                  Tile t = tileAt(x,y-1);
+                  if ((t.type&~Tile.OPEN)>0){
+                    Matrix4 mat = new Matrix4();
+                    mat.translate(x,0,y);
+                    mat.rotate(Vector3.Y, -90);
+                    sp.setUniformMatrix("u_objectMatrix", mat);
+                    if ((t.type&Tile.PIT)>0)
+                      pitWall.render(sp, GL20.GL_TRIANGLES);
+                    else
+                      tunnelWall.render(sp, GL20.GL_TRIANGLES);
+                  }
                 }
-              }
-              if (!tileExists(x,y+1)){
-                Matrix4 mat = new Matrix4();
-                mat.translate(x,0,y);
-                mat.rotate(Vector3.Y, 90);
-                sp.setUniformMatrix("u_objectMatrix", mat);
-                wall.render(sp, GL20.GL_TRIANGLES);
-              }else{
-                Tile t = tileAt(x,y+1);
-                if ((t.type&~Tile.OPEN)>0){
+                if (!tileExists(x,y+1)){
                   Matrix4 mat = new Matrix4();
                   mat.translate(x,0,y);
                   mat.rotate(Vector3.Y, 90);
                   sp.setUniformMatrix("u_objectMatrix", mat);
-                  if ((t.type&Tile.PIT)>0)
-                    pitWall.render(sp, GL20.GL_TRIANGLES);
-                  else
-                    tunnelWall.render(sp, GL20.GL_TRIANGLES);
+                  wall.render(sp, GL20.GL_TRIANGLES);
+                }else{
+                  Tile t = tileAt(x,y+1);
+                  if ((t.type&~Tile.OPEN)>0){
+                    Matrix4 mat = new Matrix4();
+                    mat.translate(x,0,y);
+                    mat.rotate(Vector3.Y, 90);
+                    sp.setUniformMatrix("u_objectMatrix", mat);
+                    if ((t.type&Tile.PIT)>0)
+                      pitWall.render(sp, GL20.GL_TRIANGLES);
+                    else
+                      tunnelWall.render(sp, GL20.GL_TRIANGLES);
+                  }
                 }
               }
             }
           }
         }
-      }
-      // draw stuff
-      {
-        // order objs
-        Array<Obj> orderedObjs = new Array<Obj>();
-        Vector2 thisp = new Vector2(cam.position.x, cam.position.z);
-        for (int i = 0; i < objs.size; ++i){
-          Obj o = objs.get(i);
-          o.renderDist = o.getPos().cpy().sub(thisp).len();
-          if (orderedObjs.size==0)
-            orderedObjs.add(o);
-          else
-            for (int c = 0; c < orderedObjs.size; ++c){
-              if (o.renderDist > orderedObjs.get(c).renderDist){
-                orderedObjs.insert(c,o);
-                break;
-              }else
-              if (c==orderedObjs.size-1){
-                orderedObjs.add(o);
-                break;
+        // draw stuff
+        {
+          // order objs
+          Array<Obj> orderedObjs = new Array<Obj>();
+          Vector2 thisp = getCurrCamPos2();
+          for (int i = 0; i < objs.size; ++i){
+            Obj o = objs.get(i);
+            o.renderDist = o.getPos().cpy().sub(thisp).len();
+            if (orderedObjs.size==0)
+              orderedObjs.add(o);
+            else
+              for (int c = 0; c < orderedObjs.size; ++c){
+                if (o.renderDist > orderedObjs.get(c).renderDist){
+                  orderedObjs.insert(c,o);
+                  break;
+                }else
+                if (c==orderedObjs.size-1){
+                  orderedObjs.add(o);
+                  break;
+                }
               }
-            }
-        }
-        for (int i = 0; i < orderedObjs.size; ++i){
-          Obj o = orderedObjs.get(i);
-          o.draw(sp);
+          }
+          for (int i = 0; i < orderedObjs.size; ++i){
+            Obj o = orderedObjs.get(i);
+            o.draw(sp);
+          }
         }
       }
       // draw ui
       {
+        Gdx.gl.glClear(GL20.GL_DEPTH_BUFFER_BIT);
+        sp.setUniformf("u_color", 1,1,1,1);
+        sp.setUniformf("u_circ", new Vector3((float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,600f));
         if (!dying)
         {
           sp.setUniformMatrix("u_projectionViewMatrix", uicam.combined);
