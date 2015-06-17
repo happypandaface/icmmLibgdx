@@ -68,7 +68,7 @@ class Obj
   void addDontHit(Obj o){dontHit.add(o);}
   float radius=-1;// if bigger than 0 it means the obj is hittable (not solid)
   boolean canTog;
-  Vector3 pos=new Vector3();void setPos(float x,float y){pos=new Vector3(x,0,y);}void setPos(Vector2 n){setPos(n.x,n.y);}
+  Vector3 pos=new Vector3();void setPos(float x,float y){pos=new Vector3(x,0,y);}
   float ms=0;
   float vel=0;// velocity degrades unlike ms
   Vector2 getPos(){return new Vector2(pos.x,pos.z);}
@@ -142,16 +142,13 @@ class Obj
   void damaged(float f, Obj o){}
   void getHit(Obj o){};
   Array<Obj> inv = new Array<Obj>();
-  Obj holder=null;
   void toInv(Obj o, Obj from){
     o.inWorld=false;
-    o.holder=this;
     inv.add(o);
   }
   void fromInv(Obj o, Obj taker){
     inv.removeValue(o, true);
     o.inWorld=true;
-    o.holder=null;
     o.pos=pos.cpy();
   }
   void dropSpecial(Obj o){
@@ -191,11 +188,9 @@ class Guy extends Obj
     }
   }
   void toInv(Obj o, Obj from){
-    o.holder=this;
     game.toInv(o);
   }
   void fromInv(Obj o, Obj taker){
-    o.holder=null;
     game.fromInv(o);
   }
   void setPos(float x, float y){
@@ -293,35 +288,28 @@ class Exp extends Obj
   Obj dontKill=null;
   void init(){
     super.init();
+    game.playSound("fireW", getPos());
+    Array<Obj> hit = game.getRadius(.5f,getPos());
+    for(int i = 0; i<hit.size;++i){
+      Obj o = hit.get(i);
+      if (o!=dontKill){
+        o.damaged(1f, this);
+      }
+    }
   }
   float expTimer=0;
   float maxExpTime=.25f;
-  Exp delay(float t){expTimer=-t;return this;};
   void step(float dt){
-    boolean ready=expTimer<=0;
     expTimer+=dt;
-    tex=null;// so we dont draw before delay
-    if (expTimer>0){
-      if (ready){
-        game.playSound("fireW", getPos());
-        Array<Obj> hit = game.getRadius(.5f,getPos());
-        for(int i = 0; i<hit.size;++i){
-          Obj o = hit.get(i);
-          if (o!=dontKill){
-            o.damaged(1f, this);
-          }
-        }
-      }
-      if (expTimer>maxExpTime*2f/3f)
-        tex="exp3.png";
-      else
-      if (expTimer>maxExpTime/3f)
-        tex="exp2.png";
-      else
-        tex="exp1.png";
-      if (expTimer>maxExpTime){
-        remove = true;
-      }
+    if (expTimer>maxExpTime*2f/3f)
+      tex="exp3.png";
+    else
+    if (expTimer>maxExpTime/3f)
+      tex="exp2.png";
+    else
+      tex="exp1.png";
+    if (expTimer>maxExpTime){
+      remove = true;
     }
   }
 }
@@ -598,29 +586,6 @@ class Torch extends Obj
     }
   }
 }
-class Phono extends Obj
-{
-  Phono(){
-    pushFor=.15f;
-    tex="phono1.png";
-    billboard=true;
-    scale=.4f;
-    canTog=true;
-    offY=.05f;
-  }
-  float bounceTimer;
-  void step(float dt){
-    game.loopSound("short", getPos(), this);
-    bounceTimer+=dt;
-    if ((int)(bounceTimer*4f)%2==0){
-      tex="phono1.png";
-    }else{
-      tex="phono2.png";
-    }
-  }
-  void tog(Obj o){
-  }
-}
 class Reliquary extends Obj
 {
   Reliquary(){
@@ -724,52 +689,10 @@ class Crystal extends Obj
     }
   }
 }
-class ExpBarrel extends Obj
-{
-  ExpBarrel(){
-    radius=.55f;
-    stationary=true;
-    canHit=true;
-    tex="expBarrel.png";
-    billboard=true;
-    solid=true;
-  }
-  float expCount;
-  void step(float dt){
-    if (expCount>0){
-      if ((int)(expCount*(expCount<1.5f?8:4))%2==0){
-        tex="expBarrel2.png";
-      }else{
-        tex="expBarrel.png";
-      }
-      expCount-=dt;
-      if (expCount<=0){
-        remove=true;
-        {
-          Exp exp = new Exp();
-          exp.setPos(getPos());
-          game.addObj(exp);
-        }
-        for (float deg=0; deg<=360; deg+=(360f/8f)){
-          Exp exp = new Exp();
-          exp.delay(.1f);
-          Vector2 expPos=getPos().add(new Vector2(1,0).rotate(deg));
-          exp.pos=new Vector3(expPos.x, 0, expPos.y);
-          game.addObj(exp);
-        }
-      }
-    }
-  }
-  void damaged(float d, Obj o){
-    if (expCount==0&&!remove&&o instanceof Exp){
-      expCount=2;
-    }
-  }
-}
 class Bomb extends Obj
 {
   Bomb(){
-    radius=.2f;
+    radius=.5f;
     canHit=true;
     tex="bomb1.png";
     sel="bombH1.png";
@@ -781,26 +704,20 @@ class Bomb extends Obj
   float expCount;
   void step(float dt){
     if (expCount>0){
-      if ((int)(expCount*(expCount<1.5f?8:4))%2==0){
+      if (((int)expCount*4)%2==0){
         tex="bomb2.png";
-        sel="bombH2.png";
+        tex="bombH2.png";
       }else{
         tex="bomb1.png";
-        sel="bombH1.png";
+        tex="bombH1.png";
       }
       expCount-=dt;
-      if (expCount<=0){
+      if (expCount<0){
         remove=true;
-        {
+        for (float deg=0; deg<=360; deg+=360f/8f){
           Exp exp = new Exp();
-          exp.setPos(getPos());
-          game.addObj(exp);
-        }
-        for (float deg=0; deg<=360; deg+=(360f/8f)){
-          Exp exp = new Exp();
-          exp.delay(.1f);
           Vector2 expPos=getPos().add(new Vector2(1,0).rotate(deg));
-          exp.pos=new Vector3(expPos.x, 0, expPos.y);
+          exp.pos=pos.cpy().add(expPos.x, 0, expPos.y);
           game.addObj(exp);
         }
       }
@@ -808,17 +725,16 @@ class Bomb extends Obj
   }
   void tog(Obj o){
     if (inWorld)
-      o.toInv(this,null);
+      game.toInv(this);
   }
   void act(){
-    angle=holder.getAngle();
-    setPos(holder.getPos().add(new Vector2(.5f,0).rotate(angle)));
+    game.fromInv(this);
+    angle=game.guy.getAngle();
     vel=1f;
-    holder.fromInv(this,null);
   }
   void damaged(float d, Obj o){
-    if (expCount==0&&!remove&&o instanceof Exp){
-      expCount=4;
+    if (!remove&&o instanceof Exp){
+      expCount=2;
     }
   }
 }
@@ -1105,50 +1021,6 @@ class Wiz extends Obj
     WizGoo o = new WizGoo();
     o.pos=pos.cpy();
     game.addObj(o);
-  }
-}
-class Worm extends Obj
-{
-  Worm(){
-    radius=.4f;
-    weight=2f;
-    tex="wormUp.png";
-    billboard=true;
-    ai=new WanderFightAI();
-    ms=.3f;
-    customTileTester= new Icmm.TileTester(){
-      boolean works(Tile t){return (t!=null&&t.checkType(Tile.DIRT)&&t.exists&&(t.type&~Tile.PIT)>0);}
-    };
-  }
-  void step(float dt){
-    super.step(dt);
-    game.loopSound("dig", getPos(), this);
-    if (ai instanceof WanderFightAI){
-      WanderFightAI wfai = (WanderFightAI)ai;
-      if ((int)(wfai.actTime*8f)%2==0)
-        flipX=true;
-      else
-        flipX=false;
-      if (wfai.currAct==WanderFightAI.ACT_KILL){
-        tex="wormUp.png";
-      }else
-      if (wfai.currAct==WanderFightAI.ACT_WALK){
-        tex="wormDig.png";
-      }
-    }
-  }
-  void fight(){
-    game.playSound("swordW", getPos());
-    angle=game.getGuyPos().cpy().sub(getPos()).angle();
-    Icmm.ObjTester iot = new Icmm.ObjTester(){
-      boolean works(Obj o){
-        return o.inWorld&&o.canHit;
-      }
-    };
-    Obj bestObj = game.getFirst(this, 90, 1f, iot);
-    if (bestObj != null){
-      bestObj.damaged(1f,this);
-    }
   }
 }
 class Knight extends Obj
@@ -1497,9 +1369,7 @@ class WanderFightAI extends AI{
   static int ACT_WALK=0;
   static int ACT_KILL=1;
   int currAct=ACT_WALK;
-  float actTime=0;
   void act(Obj obj, float dt){
-    actTime+=dt;// just for animation
     checkGuyCount+=dt;
     if (checkGuyCount>=checkGuyMax){
       checkGuyCount-=checkGuyMax;
@@ -1744,7 +1614,7 @@ public class Icmm extends ApplicationAdapter {
       if (vol>.95f)
         pan=0;
       if (o.loop!=null)
-        o.loop.setPan(o.soundLoop, -1*pan, vol);
+        o.loop.setPan(o.soundLoop, pan, vol);
       else 
       {
         o.loop = ass.get(s+".ogg", Sound.class);
@@ -1837,8 +1707,6 @@ public class Icmm extends ApplicationAdapter {
       red = new Texture(p);
     }
     ass.load("ratD.ogg", Sound.class);
-    ass.load("short.ogg", Sound.class);
-    ass.load("dig.ogg", Sound.class);
     ass.load("portal.ogg", Sound.class);
     ass.load("dogD.ogg", Sound.class);
     ass.load("click.ogg", Sound.class);
@@ -1856,13 +1724,6 @@ public class Icmm extends ApplicationAdapter {
     ass.load("dirt.png", Texture.class);
     ass.load("pedestal.png", Texture.class);
     ass.load("crystal.png", Texture.class);
-    ass.load("wormDig.png", Texture.class);
-    ass.load("wormOut.png", Texture.class);
-    ass.load("wormUp.png", Texture.class);
-    ass.load("phono1.png", Texture.class);
-    ass.load("phono2.png", Texture.class);
-    ass.load("expBarrel.png", Texture.class);
-    ass.load("expBarrel2.png", Texture.class);
     ass.load("bomb1.png", Texture.class);
     ass.load("bomb2.png", Texture.class);
     ass.load("bombH1.png", Texture.class);
@@ -1954,9 +1815,6 @@ public class Icmm extends ApplicationAdapter {
     for (int i = objs.size-1; i >= 0; --i){
       Obj o = objs.get(i);
       if (o.remove){
-        if (o.holder!=null){
-          o.holder.fromInv(o,null);
-        }
         stopLoop(o);
         objs.removeIndex(i);
       }
@@ -2475,56 +2333,20 @@ public class Icmm extends ApplicationAdapter {
       }
     }else
     if (level==2){
-      guy.setPos(1,1);
-      for (int x = 0; x < 3; ++x)
-        for (int y = 0; y < 4; ++y)
-          tileAt(x,y).setExists(true);
-      {
-        Obj o = new Bomb();
-        o.setPos(2,2);
-        addObj(o);
-      }
-      for (int y=4; y<6; ++y)
-        tileAt(2,y).setExists(true).addType(Tile.TUNNEL);
-      for (int x = 1; x < 4; ++x)
-        for (int y = 6; y < 9; ++y)
-          tileAt(x,y).setExists(true);
-      {
-        Obj o = new LionHead();
-        o.setPos(3,7);
-        o.angle=180;
-        addObj(o);
-        Obj p = new Pedestal();
-        p.setPos(o.getPos());
-        addObj(p);
-      }
-      for (int y=9; y<11; ++y)
-        tileAt(2,y).setExists(true).addType(Tile.TUNNEL);
-      {
-        Obj o = new ExpBarrel();
-        o.setPos(2,10);
-        addObj(o);
-      }
-      for (int x = 2; x < 5; ++x)
-        for (int y = 11; y < 14; ++y)
+      guy.setPos(5,5);
+      for (int x = 0; x < 10; ++x)
+        for (int y = 0; y < 10; ++y)
           tileAt(x,y).setExists(true).addType(Tile.DIRT);
       {
-        Obj o = new Worm();
-        o.setPos(2, 12);
+        Obj o = new Bomb();
+        o.setPos(5,6);
         addObj(o);
       }
-      for (int x=5; x<7; ++x)
-        tileAt(x,12).setExists(true).addType(Tile.TUNNEL);
-      for (int x = 7; x < 11; ++x)
-        for (int y = 11; y < 14; ++y)
-          tileAt(x,y).setExists(true);
       {
-        Obj o = new Phono();
-        o.setPos(8, 12);
+        Obj o = new LionHead();
+        o.setPos(6,6);
+        o.angle=0;
         addObj(o);
-        Obj p = new Pedestal();
-        p.setPos(o.getPos());
-        addObj(p);
       }
       /* set all to dirt
       for (int x=srtx; x<endx;++x)
@@ -2543,7 +2365,6 @@ public class Icmm extends ApplicationAdapter {
   Guy guy=new Guy();
   Tile[][] tiles=new Tile[endx][endy];
   void toInv(Obj o){
-    o.holder=guy;
     o.inWorld=false;
     inv.add(o);
     switchTo(o);
@@ -2551,7 +2372,6 @@ public class Icmm extends ApplicationAdapter {
   void fromInv(Obj o){
     if (o==anim)
       anim=null;
-    o.holder=null;
     switchInv(-1);
     o.inWorld=true;
     inv.removeValue(o, true);
