@@ -68,6 +68,7 @@ class Obj
   void addDontHit(Obj o){dontHit.add(o);}
   float radius=-1;// if bigger than 0 it means the obj is hittable (not solid)
   boolean canTog;
+  boolean canMove=true;
   Vector3 pos=new Vector3();void setPos(float x,float y){pos=new Vector3(x,0,y);}void setPos(Vector2 n){setPos(n.x,n.y);}
   float ms=0;
   float vel=0;// velocity degrades unlike ms
@@ -121,6 +122,8 @@ class Obj
         vel=0;
       effms=vel;
     }
+    if (!canMove)
+      effms=0;
     if (effms>0){
       Vector2 dir = new Vector2(1,0).rotate(angle);
       dir.scl(dt*effms);
@@ -135,10 +138,19 @@ class Obj
   }
   void act(){// called when invoked
   }
+  void drop(){
+    angle=holder.getAngle();
+    setPos(holder.getPos().add(new Vector2(.25f,0).rotate(angle)));
+    vel=1f;
+    holder.fromInv(this,null);
+  }
   boolean actf(float dt){//frames during action
     return true;// done with anim
   }
-  void tog(Obj o){}
+  void tog(Obj o){// only works if its an item
+    if (inWorld)
+      game.toInv(this);
+  }
   void damaged(float f, Obj o){}
   void getHit(Obj o){};
   Array<Obj> inv = new Array<Obj>();
@@ -184,7 +196,8 @@ class Guy extends Obj
   void damaged(float f, Obj o){
     game.tweenAng(o.getPos().cpy().sub(getPos()).angle());
     game.playSound("wizD", getPos());
-    hp -= f*.4f;
+    if (!(Icmm.dev==1))
+      hp -= f*.4f;
     if (hp<=0){
       hp=0;
       game.die();
@@ -209,6 +222,7 @@ class Sword extends Obj
     super();
     tex="swordW.png";
     sel="sword1.png";
+    canTog=true;// for pickup
   }
   void act(){
     game.anim=this;
@@ -975,7 +989,8 @@ class Rat extends Obj
     tex="ratD1.png";
     billboard=true;
     canHit=true;
-    ms=1f;
+    ai=new FleeAI();
+    ms=1.75f;
     angle=90;
   }
   float changeAngCount=0;
@@ -983,11 +998,13 @@ class Rat extends Obj
   float changeAngCountMin=1f;
   void step(float dt){
     super.step(dt);
-    if (!dead){
-      changeAngCount-=dt;
-      if (changeAngCount<=0){
-        angle=(float)Math.random()*360f;
-        changeAngCount=changeAngCountMin+(float)Math.random()*(changeAngCountMax-changeAngCountMin);
+    if(ai==null){
+      if (!dead){
+        changeAngCount-=dt;
+        if (changeAngCount<=0){
+          angle=(float)Math.random()*360f;
+          changeAngCount=changeAngCountMin+(float)Math.random()*(changeAngCountMax-changeAngCountMin);
+        }
       }
     }
   }
@@ -997,7 +1014,7 @@ class Rat extends Obj
     //float camAng = new Vector2(game.cam.direction.x, game.cam.direction.z).angle();
     float diff = Icmm.normAngle(camAng-angle);
     if (diff < 45 && diff > -45){
-      if ((int)(changeAngCount*8)%2==0)
+      if ((int)(((FleeAI)ai).checkSightCount*8)%2==0)
         flipX=true;
       else
         flipX=false;
@@ -1005,20 +1022,20 @@ class Rat extends Obj
     }else
     if (diff < 135 && diff > 45){
       flipX=false;
-      if ((int)(changeAngCount*8)%2==0)
+      if ((int)(((FleeAI)ai).checkSightCount*8)%2==0)
         return "ratR1.png";
       else
         return "ratR2.png";
     }else
     if (diff > -135 && diff < -45){
       flipX=true;
-      if ((int)(changeAngCount*8)%2==0)
+      if ((int)(((FleeAI)ai).checkSightCount*8)%2==0)
         return "ratR1.png";
       else
         return "ratR2.png";
     }else
     if (diff > 135 || diff < -135){
-      if ((int)(changeAngCount*8)%2==0)
+      if ((int)(((FleeAI)ai).checkSightCount*8)%2==0)
         flipX=true;
       else
         flipX=false;
@@ -1151,6 +1168,85 @@ class Worm extends Obj
     }
   }
 }
+class Skeli extends Obj
+{
+  Skeli(){
+    radius=.40f;
+    weight=1f;
+    ms=.9f;
+    tex="skeli.png";
+    billboard=true;
+    canHit=true;
+    ai=new FightAI();
+  }
+  void fight(){
+    game.playSound("swordW", getPos());
+    angle=game.getGuyPos().cpy().sub(getPos()).angle();
+    Icmm.ObjTester iot = new Icmm.ObjTester(){
+      boolean works(Obj o){
+        return o.inWorld&&o.canHit&&!(o instanceof Necro);
+      }
+    };
+    Obj bestObj = game.getFirst(this, 90, 1f, iot);
+    if (bestObj != null){
+      bestObj.damaged(1f,this);
+    }
+  }
+  float walkCount=0;
+  float minWCount = 1;
+  float maxWCount= 1;
+  float castCount=0;
+  float minCCount = 3;
+  float maxCCount= 4;
+  float castTimer = 0;
+  Vector2 dir=new Vector2();
+  float changeAngCount=0;
+  float changeAngCountMax=.5f;
+  float changeAngCountMin=.3f;
+  float actTime=0;
+  float actTimeMax=2f;
+  String getTex(){
+    FightAI fai=null;
+    if(ai instanceof FightAI){
+      fai = (FightAI)ai;
+    }
+    if(ai instanceof WanderFightAI){
+      fai = ((WanderFightAI)ai).fai;
+    }
+    if (fai!=null){
+      if(fai.actTime<fai.actTimeMax){
+        if(fai.actTime<fai.actTimeMax*.5f)
+          return "skeliA1.png";
+        if(fai.actTime>fai.actTimeMax*.5f)
+          return "skeliA2.png";
+      }else
+      {
+        if ((int)(fai.walkCount*8)%2==0)
+          tex="skeliW1.png";
+        else
+          tex="skeliW2.png";
+      }
+    }
+    return null;
+  }
+  void step(float dt){
+    super.step(dt);
+  }
+  float health=2f;
+  void damaged(float f, Obj hitter){
+    health-=f;
+    if (health<=0){
+      dropInv();
+      remove=true;
+      game.playSound("manHit", getPos());
+      Grave o = new Grave();
+      o.pos=pos.cpy();
+      game.addObj(o);
+    }else{
+      game.playSound("armorHit", getPos());
+    }
+  }
+}
 class Knight extends Obj
 {
   Knight(){
@@ -1213,6 +1309,7 @@ class Knight extends Obj
     return null;
   }
   void step(float dt){
+    //Vector2 sight = game.sight(this, getPos(), game.guy, .5f, 6f);
     if (ai!=null)
       ai.act(this,dt);
     else{
@@ -1293,6 +1390,47 @@ class Knight extends Obj
     }else{
       game.playSound("armorHit", getPos());
     }
+  }
+}
+class Necro extends Obj
+{
+  Necro(){
+    radius=.40f;
+    ms=1.5f;
+    tex="necro1.png";
+    billboard=true;
+    canHit=true;
+    //FindAI fai = new FindAI();
+    FleeFindAI ffai = new FleeFindAI();
+    ffai.fiai.iot=new Icmm.ObjTester(){
+      boolean works(Obj o){
+        return (o instanceof Grave);
+      }
+    };
+    ai=ffai;
+  }
+  void step(float dt){
+    super.step(dt);
+  }
+  void fight(){
+    Array<Obj> hit = game.getRadiusAll(2f,getPos());
+    for(int i = 0; i<hit.size;++i){
+      Obj o = hit.get(i);
+      if (o instanceof Grave){
+        o.remove=true;
+        Skeli s = new Skeli();
+        s.setPos(o.getPos());
+        game.addObj(s);
+      }
+    }
+  }
+  void damaged(float f, Obj hitter){
+    dropInv();
+    remove=true;
+    game.playSound("manHit", getPos());
+    Grave o = new Grave();
+    o.pos=pos.cpy();
+    game.addObj(o);
   }
 }
 class Witch extends Obj
@@ -1509,7 +1647,7 @@ class WanderFightAI extends AI{
         }
       };
       Array<Tile> path = obj.game.getPath(obj.getPos(), 17, obj, iot);
-      if (path!=null&&path.size>2&&path.size<6){
+      if (path!=null&&path.size<6){
         currAct=ACT_KILL;
       }else{
         currAct=ACT_WALK;
@@ -1518,8 +1656,138 @@ class WanderFightAI extends AI{
     if (currAct==ACT_KILL){
       fai.act(obj, dt);
     }else{
+      obj.canMove=true;
       wai.act(obj, dt);
     }
+  }
+}
+class FleeFindAI extends AI{
+  FleeAI flai=new FleeAI();
+  FindAI fiai=new FindAI();
+  void init(Obj o){
+    super.init(o);
+  }
+  float checkGuyCount=0;
+  static int ACT_FLEE=0;
+  static int ACT_FIND=1;
+  int currAct=ACT_FLEE;
+  float actTime=0;
+  void act(Obj obj, float dt){
+    actTime+=dt;// just for animation
+    checkGuyCount+=dt;
+    if (checkGuyCount>=1.25f){
+      checkGuyCount-=1.25f;
+      Array<Tile> path = null;
+      Vector2 s = obj.game.sight(obj, obj.getPos(), obj.game.guy, .5f, 10f);
+      if (s.x<0){
+        path = obj.game.getPath(obj.getPos(), 17, obj, fiai.iot);
+      }
+      if (path!=null&&path.size<10){
+        currAct=ACT_FIND;
+      }else{
+        currAct=ACT_FLEE;
+      }
+    }
+    if (currAct==ACT_FIND){
+      fiai.act(obj, dt);
+    }else{
+      flai.act(obj, dt);
+    }
+  }
+}
+class FleeAI extends AI{
+  float checkSightCount;
+  Array<Tile> fleePath;
+  void act(Obj obj, float dt){
+    if (checkSightCount<1.2f){
+      if (fleePath!=null){
+        if (fleePath.size>0){
+          Tile t = fleePath.get(fleePath.size-1);
+          Vector2 diff=t.getPos().cpy().sub(obj.getPos());
+          if (diff.len()<dt*obj.ms)
+            fleePath.removeIndex(fleePath.size-1);
+          obj.angle=diff.angle();
+        }else{
+          fleePath=null;
+          checkSightCount=999;
+        }
+      }
+      checkSightCount+=dt+Math.random()*dt;
+    }else{
+      checkSightCount=0;
+      if (fleePath==null||checkSightCount>3.5f){
+        Vector2 s = obj.game.sight(obj, obj.getPos(), obj.game.guy, .5f, 10f);
+        if (s.x>=0){
+          final Obj testObj=obj;
+          Icmm.TileTester tt = new Icmm.TileTester(){
+            boolean works(Tile t){
+              if (t!=null&&t.exists&&(t.type&~Tile.PIT)>0){
+                Vector2 s = testObj.game.sight(testObj, t.getPos(), testObj.game.guy, .5f, 10f);
+                if (s.x<0){
+                  return true;
+                }
+              }
+              return false;
+            }
+          };
+          fleePath = obj.game.getPath(obj.getPos(), 17, obj, tt);
+        }
+      }
+    }
+  }
+}
+class FindAI extends AI{
+  float changeAngCount=0;
+  float changeAngCountMax=.5f;
+  float changeAngCountMin=.3f;
+  float actTime=0;
+  float actTimeMax=2f;
+  float walkCount=0;
+  Icmm.ObjTester iot = new Icmm.ObjTester(){
+    boolean works(Obj o){
+      return (o instanceof Guy);
+    }
+  };
+  void act(Obj obj, float dt){
+    if (actTime < actTimeMax)
+    {
+      obj.canMove=false;
+      boolean setup=(actTime<actTimeMax*.5f);
+      actTime+=dt;
+      if(actTime>actTimeMax*.5f){
+        if (setup){
+          // call fighting ability
+          obj.fight();
+        }
+      }
+    }else
+    {
+      obj.canMove=true;
+      walkCount += dt;
+      changeAngCount-=dt;
+      if (changeAngCount<=0){
+        Array<Tile> path = obj.game.getPath(obj.getPos(), 17, obj, iot);
+        if (path!=null&&path.size>1){
+          // open any doors in our way
+          Tile t = path.get(path.size-2);
+          for (Obj o : obj.game.objs){
+            if (obj.game.tileAt(o.getPos())==t&&
+              o.solid&&o.canTog){
+              o.tog(obj);
+            }
+          }
+          obj.angle=t.getPos().cpy().sub(obj.getPos()).angle();
+        }
+        if (path!=null&&path.size < 3){
+          // we should attack, the target is close
+          actTime=0f;
+        }
+        changeAngCount=changeAngCountMin+(float)Math.random()*(changeAngCountMax-changeAngCountMin);
+      }
+      obj.oldStep(dt);
+    }
+  }
+  void fight(Obj obj){
   }
 }
 class FightAI extends AI{
@@ -1532,6 +1800,7 @@ class FightAI extends AI{
   void act(Obj obj, float dt){
     if (actTime < actTimeMax)
     {
+      obj.canMove=false;
       boolean setup=(actTime<actTimeMax*.5f);
       actTime+=dt;
       if(actTime>actTimeMax*.5f){
@@ -1542,6 +1811,7 @@ class FightAI extends AI{
       }
     }else
     {
+      obj.canMove=true;
       walkCount += dt;
       changeAngCount-=dt;
       if (changeAngCount<=0){
@@ -1551,9 +1821,9 @@ class FightAI extends AI{
           }
         };
         Array<Tile> path = obj.game.getPath(obj.getPos(), 17, obj, iot);
-        if (path!=null&&path.size>2){
+        if (path!=null&&path.size>1){
           // open any doors in our way
-          Tile t = path.get(path.size-3);
+          Tile t = path.get(path.size-2);
           for (Obj o : obj.game.objs){
             if (obj.game.tileAt(o.getPos())==t&&
               o.solid&&o.canTog){
@@ -1562,7 +1832,7 @@ class FightAI extends AI{
           }
           obj.angle=t.getPos().cpy().sub(obj.getPos()).angle();
         }
-        if (path!=null&&path.size < 4){
+        if (path!=null&&path.size < 3){
           // we should attack, the target is close
           actTime=0f;
         }
@@ -1584,16 +1854,140 @@ public class Icmm extends ApplicationAdapter {
     // the default tile tester for rectify
     boolean works(Tile t){return (t!=null&&t.exists&&(t.type&~Tile.PIT)>0);}
   }
-  Array<Tile> getPath(Vector2 pos, int dist, Obj obj, ObjTester ot){
-    Array<TileDepth> stack = new Array<TileDepth>();
-    Array<TileDepth> done= new Array<TileDepth>();
-    Tile t= null;
-    return getPath(pos, dist, 0, obj, ot, stack, done);
+  Vector2 sight(Obj obj, Vector2 pos, Obj o, float inc, float max){
+    float dist = 0;
+    Vector2 dir=o.getPos().cpy().sub(pos).nor();
+    float ang=dir.angle();
+    for (;dist < max; dist += inc){
+      Vector2 currDist = pos.add(dir.cpy().scl(dist));
+      Icmm.RectRTN rr = new Icmm.RectRTN();
+      rr.tt=new TileTester(){
+        boolean works(Tile t){
+          return (t!=null&&t.exists);
+        }
+      };
+      Vector3 test=rectify(new Vector3(currDist.x, 0, currDist.y), obj, rr);
+      if (test==null)
+        return new Vector2(-1, ang);
+      else{
+        float diff=currDist.cpy().sub(o.getPos()).len();
+        if (diff<=inc*2)
+          return new Vector2(dist, ang);
+      }
+    }
+    return new Vector2(-1,ang);// not found
   }
+  /*
+  float sightDist(Vector2 pos, Obj o, float max){
+    float dist = 0;
+  }*/
   class TileDepth{
     Tile tile;
     Tile lastTile;
     int depth;
+  }
+  Array<Tile> getPath(Vector2 pos, int dist, Obj obj, TileTester tt){
+    Array<TileDepth> stack = new Array<TileDepth>();
+    Array<TileDepth> done= new Array<TileDepth>();
+    Tile t= null;
+    Array<Tile> rtn= getPath(pos, dist, 0, obj, tt, stack, done);
+    if(rtn!=null&&rtn.size>1){
+      rtn.removeIndex(rtn.size-1);// otherwise it looks weird
+    }
+    return rtn;
+  }
+  Array<Tile> getPath(Vector2 pos, int dist, int depth, Obj obj, TileTester tt, Array<TileDepth> stack, Array<TileDepth> done){
+    if (dist<depth){
+      return null;// too long
+    }
+    Vector2 rtn = new Vector2(pos.x, pos.y);
+    int tx = (int)Math.round(rtn.x);
+    int ty = (int)Math.round(rtn.y);
+    if (!tileExists(tx,ty)){
+      return null;// this tile doesnt exist
+    }
+    // this is a tile we're on
+    Tile t=tiles[tx][ty];
+    if (tt.works(t)){
+      // found it
+      Array<Tile> rtnt=new Array<Tile>();
+      rtnt.add(t);
+      Tile curTile=t;
+      boolean foundFirst=false;// the first will have lastTile and tile the same (because its the only iteration that adds itself)
+      while(!foundFirst){
+        if (done.size==0)
+          foundFirst=true;// we're directly ontop of it you twat
+        for (int c = 0; c < done.size; ++c){
+          TileDepth cur = done.get(c);
+          if (cur.tile==curTile){
+            rtnt.add(cur.lastTile);
+            if (curTile==cur.lastTile){
+              foundFirst=true;
+              break;
+            }
+            curTile=cur.lastTile;
+          }
+        }
+      }
+      return rtnt;
+    }
+    // it's not here!
+    for (int x = -1; x <= 1; ++x)
+      for (int y = -1; y <= 1; ++y){
+        Vector2 curPos = rtn.cpy().add(x,y);
+        Tile sAdd = tileAt(curPos);
+        TileDepth td = new TileDepth();
+        td.tile=sAdd;
+        td.depth=depth;
+        td.lastTile=t;
+        if (sAdd!=null){
+          boolean didThisTile=false;
+          for (int c = 0; c < done.size; ++c){
+            if (done.get(c).tile==sAdd){
+              didThisTile=true;
+            }
+          }
+          if (!didThisTile){
+            boolean works=true;
+            if (x!=0&&y!=0){
+              // check if diag works
+              if (tileAt(rtn.cpy().add(x,0))==null||
+                tileAt(rtn.cpy().add(0,y))==null){
+                // it's not a direct diag
+                works=false;
+              }
+            }
+            if(works)
+            {
+              if (sAdd!=null){
+                done.add(td);
+                stack.add(td);// push to end
+              }
+            }
+          }
+        }
+      }
+    while(stack.size>0){// should only loop through for one
+      TileDepth curT = stack.get(0);// get first
+      stack.removeIndex(0);
+      Array<Tile> rtnts = getPath(curT.tile.getPos(), dist, curT.depth, obj, tt, stack, done);
+      if (rtnts!=null)
+      {
+        return rtnts;
+      }
+    }
+    // only if stack runs out(we tried all tiles)
+    return null;
+  }
+  Array<Tile> getPath(Vector2 pos, int dist, Obj obj, ObjTester ot){
+    Array<TileDepth> stack = new Array<TileDepth>();
+    Array<TileDepth> done= new Array<TileDepth>();
+    Tile t= null;
+    Array<Tile> rtn= getPath(pos, dist, 0, obj, ot, stack, done);
+    if(rtn!=null&&rtn.size>1){
+      rtn.removeIndex(rtn.size-1);// otherwise it looks weird
+    }
+    return rtn;
   }
   Array<Tile> getPath(Vector2 pos, int dist, int depth, Obj obj, ObjTester ot, Array<TileDepth> stack, Array<TileDepth> done){
     if (dist<depth){
@@ -1703,6 +2097,15 @@ public class Icmm extends ApplicationAdapter {
       }
     }
     return bestObj;
+  }
+  Array<Obj> getRadiusAll(float rad, Vector2 pos){
+    Array<Obj> hit = new Array<Obj>();
+    for (int i = 0; i < objs.size; ++i){
+      Obj o = objs.get(i);
+      if (pos.cpy().sub(o.getPos()).len()<rad)
+        hit.add(o);
+    }
+    return hit;
   }
   Array<Obj> getRadius(float rad, Vector2 pos){
     Array<Obj> hit = new Array<Obj>();
@@ -1852,6 +2255,8 @@ public class Icmm extends ApplicationAdapter {
     ass.load("fireW.ogg", Sound.class);
     ass.load("swordW.ogg", Sound.class);
     ass.load("dog.png", Texture.class);
+    ass.load("necro1.png", Texture.class);
+    ass.load("necro2.png", Texture.class);
     ass.load("stone.png", Texture.class);
     ass.load("dirt.png", Texture.class);
     ass.load("pedestal.png", Texture.class);
@@ -1907,6 +2312,11 @@ public class Icmm extends ApplicationAdapter {
     ass.load("wizD1.png", Texture.class);
     ass.load("wizD2.png", Texture.class);
     ass.load("wizD3.png", Texture.class);
+    ass.load("skeli.png", Texture.class);
+    ass.load("skeliA1.png", Texture.class);
+    ass.load("skeliA2.png", Texture.class);
+    ass.load("skeliW1.png", Texture.class);
+    ass.load("skeliW2.png", Texture.class);
     ass.load("knight.png", Texture.class);
     ass.load("knightA1.png", Texture.class);
     ass.load("knightA2.png", Texture.class);
@@ -2162,6 +2572,8 @@ public class Icmm extends ApplicationAdapter {
         3,1,0
       });
     }
+    guy=new Guy();
+    addObj(guy);
     held=new Hand();
     addObj(held);
     toInv(held);
@@ -2170,8 +2582,6 @@ public class Icmm extends ApplicationAdapter {
       addObj(o);
       toInv(o);
     }
-    guy=new Guy();
-    addObj(guy);
     if (level==0)
     {
       {
@@ -2208,6 +2618,7 @@ public class Icmm extends ApplicationAdapter {
       }
       {
         Obj o=new Rat();
+        o.setAI(new FleeAI());
         o.setPos(1,3);
         addObj(o);
       }
@@ -2368,6 +2779,12 @@ public class Icmm extends ApplicationAdapter {
         for (int y = 8; y < 12; ++y)
           tileAt(x,y).setExists(true);
       {
+        Obj o = new Rat();
+        o.setAI(new FleeAI());
+        o.setPos(6,11);
+        addObj(o);
+      }
+      {
         LockedDoor l1 = new LockedDoor();
         l1.setPos(6,12);
         l1.angle=90;
@@ -2493,10 +2910,10 @@ public class Icmm extends ApplicationAdapter {
         Obj o = new LionHead();
         o.setPos(3,7);
         o.angle=180;
-        addObj(o);
         Obj p = new Pedestal();
         p.setPos(o.getPos());
         addObj(p);
+        addObj(o);
       }
       for (int y=9; y<11; ++y)
         tileAt(2,y).setExists(true).addType(Tile.TUNNEL);
@@ -2519,13 +2936,46 @@ public class Icmm extends ApplicationAdapter {
         for (int y = 11; y < 14; ++y)
           tileAt(x,y).setExists(true);
       {
+        Obj o = new Necro();
+        o.setPos(9, 13);
+        addObj(o);
+      }
+      {
+        Obj o = new Skeli();
+        o.setPos(9, 12);
+        o.setAI(new WanderFightAI());
+        addObj(o);
+      }
+      {
+        Obj o = new Skeli();
+        o.setPos(10, 12);
+        o.setAI(new WanderFightAI());
+        addObj(o);
+      }
+      {
+        Obj o = new Skeli();
+        o.setPos(10, 13);
+        o.setAI(new WanderFightAI());
+        addObj(o);
+      }
+      {
         Obj o = new Phono();
         o.setPos(8, 12);
-        addObj(o);
         Obj p = new Pedestal();
         p.setPos(o.getPos());
-        addObj(p);
+        //addObj(p);
+        //addObj(o);
       }
+      for (int y=13; y<15; ++y)
+        tileAt(9,y).setExists(true).addType(Tile.TUNNEL);
+      for (int x=8; x<11; ++x)
+        for (int y=15; y<18; ++y)
+          tileAt(x,y).setExists(true).addType(Tile.TUNNEL);
+      for (int x=11; x<13; ++x)
+        tileAt(x,12).setExists(true).addType(Tile.TUNNEL);
+      for (int x=13; x<16; ++x)
+        for (int y=10; y<13; ++y)
+          tileAt(x,y).setExists(true).addType(Tile.TUNNEL);
       /* set all to dirt
       for (int x=srtx; x<endx;++x)
         for (int y=srty; y<endy;++y){
@@ -2540,7 +2990,7 @@ public class Icmm extends ApplicationAdapter {
   Obj held;
   Array<Obj> inv = new Array<Obj>();
   Array<Obj> objs=new Array<Obj>();
-  Guy guy=new Guy();
+  Guy guy;
   Tile[][] tiles=new Tile[endx][endy];
   void toInv(Obj o){
     o.holder=guy;
@@ -2852,6 +3302,10 @@ public class Icmm extends ApplicationAdapter {
               level--;
             }
             needsReset=true;
+          }
+          if (Gdx.input.isKeyJustPressed(Input.Keys.D)&&anim==null){
+            if (!(held instanceof Hand))
+              held.drop();
           }
           if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)&&anim==null){
             held.act();
