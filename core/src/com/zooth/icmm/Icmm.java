@@ -34,6 +34,20 @@ class Tile
 }
 class Obj
 {
+  // statuses
+  static long PSN=(1<<0);
+  // types
+  static long ITEM=(1<<0);
+  // item types
+  static long HAND=(1<<0);
+  static long WEAP=(1<<1);
+  static long MAGIC=(1<<2);
+  static long POTS=(1<<3);
+  static long MISC=(1<<4);
+  long status;boolean checkStatus(long stt){return (status&stt)>0;};void addStatus(long stt){status|=stt;}void removeStatus(long stt){status&=~stt;}
+  long type;boolean checkType(long stt){return (type&stt)>0;};void addType(long stt){type|=stt;}void removeType(long stt){type&=~stt;}
+  long itemType=0;boolean checkItemType(long stt){return (itemType&stt)>0;};void addItemType(long stt){itemType|=stt;}void removeItemType(long stt){itemType&=~stt;}
+  float psnTime=0;float psnTimeC=0;
   float renderDist;// used for render ordering
   boolean remove;// if true, will be removed this step
   boolean flipX;// whether or not to flip the tex
@@ -62,7 +76,7 @@ class Obj
   boolean stationary;
   boolean canHit;
   boolean dead;// different than remove
-  float hp;float getHP(){return hp;}
+  float hp;float maxhp;float getHP(){return hp;}
   boolean inWorld=true;
   Array<Obj> dontHit=new Array<Obj>();
   void addDontHit(Obj o){dontHit.add(o);}
@@ -109,11 +123,22 @@ class Obj
       }
     }
   }
+  String getSel(){
+    return sel;
+  }
   String getTex(){
     return null;
   }
   Icmm.TileTester customTileTester=null;
-  void step(float dt){if(inWorld){if(ai!=null){ai.act(this,dt);}oldStep(dt);}}
+  void step(float dt){if(inWorld){if(ai!=null){ai.act(this,dt);}oldStep(dt);}
+    if (checkStatus(PSN)){
+      psnTimeC+=dt;psnTime-=dt;if(psnTime<=0){removeStatus(PSN);}
+      if(hp>.1f){
+        hp-=dt*.05f;
+        if(hp<.1f){hp=.1f;}
+      }
+    }
+  }
   void oldStep(float dt){// per fram
     float effms=ms;//effective movespeed
     if(vel>0){
@@ -152,6 +177,7 @@ class Obj
       game.toInv(this);
   }
   void damaged(float f, Obj o){}
+  void heal(float f, Obj o){hp+=f;if(hp>maxhp){hp=maxhp;}}
   void getHit(Obj o){};
   Array<Obj> inv = new Array<Obj>();
   Obj holder=null;
@@ -189,6 +215,7 @@ class Guy extends Obj
 {
   Guy(){
     hp=1f;
+    maxhp=1f;
     weight=.1f;
     canHit=true;
     radius=.3f;
@@ -196,8 +223,16 @@ class Guy extends Obj
   void damaged(float f, Obj o){
     game.tweenAng(o.getPos().cpy().sub(getPos()).angle());
     game.playSound("wizD", getPos());
-    if (!(Icmm.dev==1))
-      hp -= f*.4f;
+    if (!(Icmm.dev==1)){
+      if(o instanceof Spider){
+        if (!checkStatus(Obj.PSN))// for animation
+          psnTimeC=0;
+        psnTime=12f;
+        addStatus(Obj.PSN);
+      }else{
+        hp -= f*.4f;
+      }
+    }
     if (hp<=0){
       hp=0;
       game.die();
@@ -220,6 +255,8 @@ class Sword extends Obj
 {
   Sword(){
     super();
+    addItemType(Obj.WEAP);
+    addType(Obj.ITEM);
     tex="swordW.png";
     sel="sword1.png";
     canTog=true;// for pickup
@@ -244,7 +281,7 @@ class Sword extends Obj
             return !(o instanceof Guy)&&o.canHit&&o.inWorld;
           }
         };
-        Obj bestObj = game.getFirst(this, 70, 1f, iot);
+        Obj bestObj = game.getFirst(this, 70, game.guyReach, iot);
         if (bestObj != null){
           if(Icmm.dev==1){
           bestObj.damaged(10f,this);
@@ -263,6 +300,8 @@ class Hand extends Obj
 {
   Hand(){
     super();
+    addType(Obj.ITEM);
+    addItemType(Obj.HAND);
     tex=null;
     sel="hand.png";
   }
@@ -284,7 +323,7 @@ class Hand extends Obj
           return o.canTog;
         }
       };
-      Obj bestObj = game.getFirst(this, 70, 1f, iot);
+      Obj bestObj = game.getFirst(this, 70, game.guyReach, iot);
       if (bestObj != null)
         bestObj.tog(this);
       return true;
@@ -687,6 +726,9 @@ class Chest extends Obj
     solid=true;
     radius=.2f;
     stationary=true;
+    // for image:
+    scale=.8f;
+    offY=-.1f;
   }
   boolean open=false;
   Obj lastAct=null;
@@ -711,6 +753,8 @@ class Chest extends Obj
 class Crystal extends Obj
 {
   Crystal(){
+    addType(Obj.ITEM);
+    addItemType(Obj.MISC);
     tex="crystal.png";
     sel="crystalH.png";
     billboard=true;
@@ -728,7 +772,7 @@ class Crystal extends Obj
         return (o instanceof Reliquary&&((Reliquary)o).crystal==null);
       }
     };
-    Obj bestObj = game.getFirst(this, 70, 1f, iot);
+    Obj bestObj = game.getFirst(this, 70, game.guyReach, iot);
     if (bestObj != null)
     {
       game.playSound("cry", getPos());
@@ -794,6 +838,7 @@ class Bomb extends Obj
   }
   float expCount;
   void step(float dt){
+    super.step(dt);
     if (expCount>0){
       if ((int)(expCount*(expCount<1.5f?8:4))%2==0){
         tex="bomb2.png";
@@ -838,7 +883,13 @@ class Bomb extends Obj
 }
 class Flask extends Obj
 {
+  static int EMPTY=0;
+  static int HEALTH=1;
+  static int ANTIDOTE=2;
+  int flaskType=EMPTY;void setFlaskType(int t){flaskType=t;}
   Flask(){
+    addType(Obj.ITEM);
+    addItemType(Obj.POTS);
     tex="flaskE.png";
     sel="flaskEH.png";
     billboard=true;
@@ -846,14 +897,77 @@ class Flask extends Obj
     canTog=true;
     offY=0;//.25f;
   }
+  String getTex(){
+    if(flaskType==HEALTH){
+      if ((int)(bubbleTimer*4)%2==0)
+        return "flaskR1.png";
+      else
+        return "flaskR2.png";
+    }else
+    if(flaskType==ANTIDOTE){
+      if ((int)(bubbleTimer*4)%2==0)
+        return "flaskG1.png";
+      else
+        return "flaskG2.png";
+    }
+    return "flaskE.png";
+  }
+  String getSel(){
+    if(flaskType==HEALTH){
+      if ((int)(bubbleTimer*4)%2==0)
+        return "flaskR1H.png";
+      else
+        return "flaskR2H.png";
+    }else
+    if(flaskType==ANTIDOTE){
+      if ((int)(bubbleTimer*4)%2==0)
+        return "flaskG1H.png";
+      else
+        return "flaskG2H.png";
+    }
+    return "flaskEH.png";
+  }
+  float bubbleTimer=0;
+  void step(float dt){
+    super.step(dt);
+    bubbleTimer+=dt;
+  }
   void tog(Obj o){
     if (inWorld)
       game.toInv(this);
   }
   void act(){
+    if(flaskType!=EMPTY){
+      game.anim=this;
+      game.playSound("drinkPot", getPos());
+      actTime=0;
+    }
+  }
+  float actTime = 0;
+  float actTimeMax = .5f;
+  boolean actf(float dt){
+    boolean setup=(actTime<actTimeMax*.5f);
+    actTime+=dt;
+    if(actTime<actTimeMax*.5f)
+      sel="sword2.png";
+    if(actTime>actTimeMax*.5f){
+      sel="sword1.png";
+      if (setup){
+        if(flaskType==HEALTH){
+          game.guy.heal(1,this);
+        }
+        if(flaskType==ANTIDOTE){
+          game.guy.removeStatus(Obj.PSN);
+        }
+        flaskType=EMPTY;
+      }
+    }
+    if (actTime>actTimeMax)
+      return true;
+    return false;
   }
 }
-class Grave extends Sign
+class Grave extends Obj
 {
   Grave(){
     solid=false;
@@ -927,7 +1041,7 @@ class Dog extends Obj
     if (!dead){
       remove=true;
       Grave o = new Grave();
-      o.msg="Here lies dog, son of dog";
+      //o.msg="Here lies dog, son of dog";
       o.pos=pos;
       game.addObj(o);
       dead=true;
@@ -944,7 +1058,14 @@ class Spider extends Obj
     billboard=true;
     canHit=true;
     ms=1f;
+    ai=new WanderFightAI();
     angle=90;
+  }
+  void init(){
+    super.init();
+    WanderFightAI wfai = (WanderFightAI)ai;
+    wfai.fai.actTimeHalf=.75f;
+    wfai.fai.actTimeMax=1f;
   }
   float changeAngCount=0;
   float changeAngCountMax=2f;
@@ -957,12 +1078,24 @@ class Spider extends Obj
         return o.inWorld&&o.canHit;
       }
     };
-    Obj bestObj = game.getFirst(this, 90, 1f, iot);
+    Obj bestObj = game.getFirst(this, 90, game.diffHit, iot);
     if (bestObj != null){
       bestObj.damaged(1f,this);
     }
   }
   String getTex(){
+    if (ai instanceof WanderFightAI){
+      WanderFightAI wfai = (WanderFightAI)ai;
+      boolean attacking = wfai.currAct== WanderFightAI.ACT_KILL&&wfai.fai.attacking;
+      if ((int)(wfai.actTime*8f)%2==0){
+        flipX=true;
+        if (attacking){return "spiderA1.png";}
+      }else{
+        flipX=false;
+        if (attacking){return "spiderA2.png";}
+      }
+      return "spiderW1.png";
+    }else
     if ((int)(changeAngCount*4)%2==0){
       return "spiderW1.png";
     }else{
@@ -973,7 +1106,7 @@ class Spider extends Obj
     if (!dead){
       remove=true;
       Grave o = new Grave();
-      o.msg="Here lies spider, son of spider";
+      //o.msg="Here lies spider, son of spider";
       o.pos=pos;
       game.addObj(o);
       dead=true;
@@ -1047,7 +1180,7 @@ class Rat extends Obj
     if (!dead){
       remove=true;
       Grave o = new Grave();
-      o.msg="Here lies rat, son of rat";
+      //o.msg="Here lies rat, son of rat";
       o.pos=pos;
       game.addObj(o);
       dead=true;
@@ -1162,7 +1295,7 @@ class Worm extends Obj
         return o.inWorld&&o.canHit;
       }
     };
-    Obj bestObj = game.getFirst(this, 90, 1f, iot);
+    Obj bestObj = game.getFirst(this, 90, game.diffHit, iot);
     if (bestObj != null){
       bestObj.damaged(1f,this);
     }
@@ -1187,7 +1320,7 @@ class Skeli extends Obj
         return o.inWorld&&o.canHit&&!(o instanceof Necro);
       }
     };
-    Obj bestObj = game.getFirst(this, 90, 1f, iot);
+    Obj bestObj = game.getFirst(this, 90, game.diffHit, iot);
     if (bestObj != null){
       bestObj.damaged(1f,this);
     }
@@ -1266,7 +1399,7 @@ class Knight extends Obj
         return o.inWorld&&o.canHit;
       }
     };
-    Obj bestObj = game.getFirst(this, 90, 1f, iot);
+    Obj bestObj = game.getFirst(this, 90, game.diffHit, iot);
     if (bestObj != null){
       bestObj.damaged(1f,this);
     }
@@ -1329,7 +1462,7 @@ class Knight extends Obj
                 return o.inWorld&&o.canHit;
               }
             };
-            Obj bestObj = game.getFirst(this, 90, 1f, iot);
+            Obj bestObj = game.getFirst(this, 90, game.diffHit, iot);
             if (bestObj != null){
               bestObj.damaged(1f,this);
             }
@@ -1794,16 +1927,19 @@ class FightAI extends AI{
   float changeAngCount=0;
   float changeAngCountMax=.5f;
   float changeAngCountMin=.3f;
-  float actTime=0;
+  float actTime=999;
   float actTimeMax=2f;
+  float actTimeHalf=.5f;
   float walkCount=0;
+  boolean attacking;// for animation
   void act(Obj obj, float dt){
     if (actTime < actTimeMax)
     {
+      attacking=true;
       obj.canMove=false;
-      boolean setup=(actTime<actTimeMax*.5f);
+      boolean setup=(actTime<actTimeMax*actTimeHalf);
       actTime+=dt;
-      if(actTime>actTimeMax*.5f){
+      if(actTime>actTimeMax*actTimeHalf){
         if (setup){
           // call fighting ability
           obj.fight();
@@ -1811,6 +1947,7 @@ class FightAI extends AI{
       }
     }else
     {
+      attacking=false;
       obj.canMove=true;
       walkCount += dt;
       changeAngCount-=dt;
@@ -1821,20 +1958,26 @@ class FightAI extends AI{
           }
         };
         Array<Tile> path = obj.game.getPath(obj.getPos(), 17, obj, iot);
-        if (path!=null&&path.size>1){
-          // open any doors in our way
-          Tile t = path.get(path.size-2);
-          for (Obj o : obj.game.objs){
-            if (obj.game.tileAt(o.getPos())==t&&
-              o.solid&&o.canTog){
-              o.tog(obj);
+        if (path!=null){
+          if(path.size<2){
+            actTime=0f;
+          }else
+          if(path.size>1){
+            // open any doors in our way
+            Tile t = path.get(path.size-2);
+            for (Obj o : obj.game.objs){
+              if (obj.game.tileAt(o.getPos())==t&&
+                o.solid&&o.canTog){
+                o.tog(obj);
+              }
+            }
+            Vector2 diff=t.getPos().cpy().sub(obj.getPos());
+            obj.angle=diff.angle();
+            if (path.size<3&&diff.len()<.15f){
+              // we should attack, the target is close
+              actTime=0f;
             }
           }
-          obj.angle=t.getPos().cpy().sub(obj.getPos()).angle();
-        }
-        if (path!=null&&path.size < 3){
-          // we should attack, the target is close
-          actTime=0f;
         }
         changeAngCount=changeAngCountMin+(float)Math.random()*(changeAngCountMax-changeAngCountMin);
       }
@@ -2208,6 +2351,8 @@ public class Icmm extends ApplicationAdapter {
   Camera cam2;
   float swivelAngle;
   float guyHeight=.75f;
+  float guyReach=1.5f;
+  float diffHit=1.25f;
   boolean swiveling=false;
   void tweenAng(float ang){swiveling=true;swivelAngle=ang;};
   Camera uicam;
@@ -2240,6 +2385,7 @@ public class Icmm extends ApplicationAdapter {
       red = new Texture(p);
     }
     ass.load("ratD.ogg", Sound.class);
+    ass.load("drinkPot.ogg", Sound.class);
     ass.load("short.ogg", Sound.class);
     ass.load("dig.ogg", Sound.class);
     ass.load("portal.ogg", Sound.class);
@@ -2255,6 +2401,8 @@ public class Icmm extends ApplicationAdapter {
     ass.load("fireW.ogg", Sound.class);
     ass.load("swordW.ogg", Sound.class);
     ass.load("dog.png", Texture.class);
+    ass.load("spiderA1.png", Texture.class);
+    ass.load("spiderA2.png", Texture.class);
     ass.load("necro1.png", Texture.class);
     ass.load("necro2.png", Texture.class);
     ass.load("stone.png", Texture.class);
@@ -2409,6 +2557,7 @@ public class Icmm extends ApplicationAdapter {
     cam2.position.set(0,.75f,0);
     cam2.direction.set(0,0,1);
     cam2.update();
+    ShaderProgram.pedantic = true;
     sp = new ShaderProgram(Gdx.files.internal("vert.glsl"), Gdx.files.internal("frag.glsl"));
     Gdx.app.log("icmm", "shader log:"+sp.getLog());
     float wh=10;// Wall height
@@ -2582,6 +2731,24 @@ public class Icmm extends ApplicationAdapter {
       addObj(o);
       toInv(o);
     }
+    {
+      Flask o = new Flask();
+      o.setFlaskType(Flask.ANTIDOTE);
+      addObj(o);
+      toInv(o);
+    }
+    {
+      Flask o = new Flask();
+      o.setFlaskType(Flask.HEALTH);
+      addObj(o);
+      toInv(o);
+    }
+    {
+      Flask o = new Flask();
+      o.setFlaskType(Flask.HEALTH);
+      addObj(o);
+      toInv(o);
+    }
     if (level==0)
     {
       {
@@ -2597,7 +2764,7 @@ public class Icmm extends ApplicationAdapter {
       {
         Obj o=new Witch();
         o.setPos(6,6);
-        addObj(o);
+        //addObj(o);
       }
       {
         Obj o = new Wiz();
@@ -2723,7 +2890,8 @@ public class Icmm extends ApplicationAdapter {
         Obj o = new Knight();
         o.setPos(0,4);
         {
-          Obj f = new Flask();
+          Flask f = new Flask();
+          f.setFlaskType(Flask.HEALTH);
           addObj(f);
           o.toInv(f,null);
         }
@@ -2837,7 +3005,9 @@ public class Icmm extends ApplicationAdapter {
       for (int x = 27; x < 30; ++x)
         tileAt(x,17).setExists(true).type |= Tile.TUNNEL;
       {
+        int i=-1;
         for (int x = 11; x < 11+6*3; x += 6){
+          ++i;
           {
             CrystalDoor d = new CrystalDoor();
             d.setPos(x-1,16);
@@ -2854,13 +3024,26 @@ public class Icmm extends ApplicationAdapter {
           }
           Obj w = new Chest();
           w.setPos(x,17);
-          //w.setAI(new WanderFightAI());
           addObj(w);
+          if(i==0)
+          {
+            Flask o = new Flask();
+            o.setFlaskType(Flask.ANTIDOTE);
+            addObj(o);
+            w.toInv(o,null);
+          }else
+          if(i==1)
           {
             Obj o=new Spider();
             addObj(o);
-            o.setAI(new WanderFightAI());
             w.toInv(o,null);
+          }else
+          if(i==2)
+          {
+            Obj o = new Knight();
+            o.setAI(new WanderFightAI());
+            o.setPos(x+1,17);
+            addObj(o);
           }
           {
             Obj o=new Crystal();
@@ -2966,10 +3149,10 @@ public class Icmm extends ApplicationAdapter {
         //addObj(p);
         //addObj(o);
       }
-      for (int y=13; y<15; ++y)
+      for (int y=14; y<16; ++y)
         tileAt(9,y).setExists(true).addType(Tile.TUNNEL);
       for (int x=8; x<11; ++x)
-        for (int y=15; y<18; ++y)
+        for (int y=16; y<19; ++y)
           tileAt(x,y).setExists(true).addType(Tile.TUNNEL);
       for (int x=11; x<13; ++x)
         tileAt(x,12).setExists(true).addType(Tile.TUNNEL);
@@ -3009,6 +3192,45 @@ public class Icmm extends ApplicationAdapter {
   }
   void switchTo(Obj o){
     held=o;
+  }
+  static int HAND=1;
+  static int WEAP=2;
+  static int MAGIC=3;
+  static int POTS=4;
+  static int MISC=5;
+  long invNumToItemType(int num){
+    if(num==HAND)return Obj.HAND;
+    if(num==WEAP)return Obj.WEAP;
+    if(num==MAGIC)return Obj.MAGIC;
+    if(num==POTS)return Obj.POTS;
+    if(num==MISC)return Obj.MISC;
+    return 0;// nothing
+  }
+  void switchInvTo(int num){
+    /*old and simple
+    if(num-1<inv.size)
+      held=inv.get(num-1);
+    */
+    // category method:
+    int pastHeld=0;
+    Obj mayb=null;// first item of cat (will switch to if we're not holding a further cat, or theres none past that one)
+    long itemType=invNumToItemType(num);
+    for (int i = 0; i < inv.size; ++i){
+      Obj o = inv.get(i);
+      if (o==held){
+        pastHeld=1;
+      }else
+      if(o.checkItemType(itemType)){
+        if(pastHeld==1||mayb==null)//only choose it if we're past held or its the first
+          mayb=o;
+        if(pastHeld==1){// first since found held in cat
+          break;
+        }
+      }
+    }
+    // mayb is now defs the right one
+    if(mayb!=null)
+      held=mayb;
   }
   void switchInv(int dir){
     for (int i = 0; i < inv.size; ++i){
@@ -3173,14 +3395,25 @@ public class Icmm extends ApplicationAdapter {
     return solidRectify(new Vector3(rtn.x,pos.y,rtn.y),obj,rr);
   }
 
+  // set the opengl color for this obj (green if poisoned)
+  void setColor(ShaderProgram sp, Obj obj){
+    if (obj.checkStatus(Obj.PSN)){
+      float psnW=1-(vizShrinkTime)*.7f;
+      sp.setUniformf("u_color", psnW,1,psnW,1);
+    }else
+      sp.setUniformf("u_color", 1,1,1,1);
+  }
   float lsm = 0;// look speed momentum
   float msm = 0;// move speed momentum
   float maxStep = .05f;
+  float totTime=0;// for seeding randomness
+  float vizShrinkTime=0;// for global vizshrink functs
 	@Override
 	public void render () {
+    float dt = Gdx.graphics.getDeltaTime();
+    totTime+=dt;
     // logic
     boolean needsReset=false;
-    float dt = Gdx.graphics.getDeltaTime();
     if (dt>maxStep){
       Gdx.app.log("over", "flow");
       dt=maxStep;
@@ -3288,6 +3521,21 @@ public class Icmm extends ApplicationAdapter {
             }
           }
           newPos.add(cam.direction.cpy().scl(dt*msm));
+          int keyHit=-1;
+          if (anim==null){if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_1)){keyHit=1;}
+           if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_2)){keyHit=2;}
+           if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_3)){keyHit=3;}
+           if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_4)){keyHit=4;}
+           if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_5)){keyHit=5;}
+           if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_6)){keyHit=6;}
+           if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_7)){keyHit=7;}
+           if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_8)){keyHit=8;}
+           if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_9)){keyHit=9;}
+           if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_0)){keyHit=0;}
+          }
+          if(keyHit>0){//0 is awkward
+            switchInvTo(keyHit);
+          }
           if (anim==null&&Gdx.input.isKeyJustPressed(Input.Keys.E)){
             switchInv(1);
           }
@@ -3344,26 +3592,52 @@ public class Icmm extends ApplicationAdapter {
         }
         removeObjs();
       }
-      // rendering
-      Gdx.gl.glClearColor(0, 0, 0, 1);
+      // rendering (drawing)
+      float w = Gdx.graphics.getWidth();
+      float h = Gdx.graphics.getHeight();
+      Gdx.gl.glClearColor(0, .5f, 0, 1);
       Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT | GL20.GL_DEPTH_BUFFER_BIT);
       Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
       Gdx.gl.glEnable(GL20.GL_DEPTH_TEST);
       Gdx.gl.glEnable(GL20.GL_BLEND);
       sp.begin();
       cam.update();
+      // seed randomness (for static)
+      sp.setUniformf("u_seed", totTime);
+      //float staticPeriodic=.5f+.5f*(float)Math.sin(2f*totTime);
+      //sp.setUniformf("u_static", .25f+.70f*staticPeriodic);
+      sp.setUniformf("u_static", 0);
       // code for visions:
-      sp.setUniformf("u_circ", new Vector3((float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,600f));
       sp.setUniformf("u_color", 1,1,1,1);
+      // for poison:
+      if(guy.checkStatus(Obj.PSN)){
+        if (guy.psnTimeC<1.0f){
+          vizShrinkTime=1-(float)Math.cos(guy.psnTimeC*Math.PI/2f);
+        }else
+        if (guy.psnTime<1.0f){
+          vizShrinkTime=1-(float)Math.cos(guy.psnTime*Math.PI/2f);
+        }else
+          vizShrinkTime=1;
+      }else
+        vizShrinkTime=0;
+      // for circ:
+      float circR=(w>h?w:h);
+      float outerCirc=(float)Math.sqrt(2);
+      float innerCirc=-.1f+(float)Math.sqrt(2);
+      float shrink=(float)Math.sqrt(2)-.5f;
       for(int j = 0; j < 2; ++j){
         if (j==0){
           sp.setUniformMatrix("u_projectionViewMatrix", cam.combined);
-          sp.setUniformf("u_circ", new Vector3((float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,600f));
-          sp.setUniformf("u_color", 1,1,1,1);
+          if (!guy.checkStatus(Obj.PSN)){
+            sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,w*outerCirc,w*innerCirc);
+          }else{
+            sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,w*(outerCirc-shrink*vizShrinkTime),w*(innerCirc-shrink*vizShrinkTime));
+          }
+          setColor(sp,guy);
           currCam = cam;
         }else{
           sp.setUniformMatrix("u_projectionViewMatrix", cam.combined);
-          sp.setUniformf("u_circ", new Vector3((float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,200f));
+          sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,w*.5f,w*.4f);
           sp.setUniformf("u_color", 1,1,1,.5f);
           currCam = cam;
         }
@@ -3509,6 +3783,8 @@ public class Icmm extends ApplicationAdapter {
             else
               for (int c = 0; c < orderedObjs.size; ++c){
                 if (o.renderDist > orderedObjs.get(c).renderDist){
+                  // items always are infront of chests
+                  //if(!(orderedObjs.get(c) instanceof Chest&&o.checkType(Obj.ITEM)))
                   orderedObjs.insert(c,o);
                   break;
                 }else
@@ -3524,6 +3800,7 @@ public class Icmm extends ApplicationAdapter {
               o = orderedObjs.get(orderedObjs.size-i-1);
               Gdx.gl.glClear(GL20.GL_DEPTH_BUFFER_BIT);
             }
+            setColor(sp,guy);
             o.draw(sp);
           }
         }
@@ -3531,8 +3808,8 @@ public class Icmm extends ApplicationAdapter {
       // draw ui
       {
         Gdx.gl.glClear(GL20.GL_DEPTH_BUFFER_BIT);
-        sp.setUniformf("u_color", 1,1,1,1);
-        sp.setUniformf("u_circ", new Vector3((float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,600f));
+        setColor(sp,guy);
+        sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,600f,400f);
         if (!dying)
         {
           sp.setUniformMatrix("u_projectionViewMatrix", uicam.combined);
@@ -3540,7 +3817,7 @@ public class Icmm extends ApplicationAdapter {
           {
             Matrix4 mat = new Matrix4();
             sp.setUniformMatrix("u_objectMatrix", mat);
-            ass.get(held.sel, Texture.class).bind();
+            ass.get(held.getSel(), Texture.class).bind();
             uiitem.render(sp, GL20.GL_TRIANGLES);
           }
           // healthbar
