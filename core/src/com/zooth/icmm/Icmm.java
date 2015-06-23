@@ -320,10 +320,10 @@ class Hand extends Obj
       game.playSound("click", getPos());
       Icmm.ObjTester iot = new Icmm.ObjTester(){
         boolean works(Obj o){
-          return o.canTog;
+          return o.canTog&&o.inWorld;
         }
       };
-      Obj bestObj = game.getFirst(this, 70, game.guyReach, iot);
+      Obj bestObj = game.getFirst(this, 90, game.guyReach, iot);
       if (bestObj != null)
         bestObj.tog(this);
       return true;
@@ -2224,7 +2224,7 @@ public class Icmm extends ApplicationAdapter {
     // only if stack runs out(we tried all tiles)
     return null;
   }
-  Obj getFirst(Obj obj, float rad, float dist, ObjTester ot){
+  Obj getFirst(Obj obj, float deg, float dist, ObjTester ot){
     Vector2 thisp = obj.getPos();
     float tarAngle = obj.getDir().angle();
     float bestDist = dist;
@@ -2233,7 +2233,7 @@ public class Icmm extends ApplicationAdapter {
       Obj o = objs.get(i);
       if (o!=obj&&ot.works(o)){
         Vector2 diff = o.getPos().cpy().sub(thisp);
-        if (diff.len() < bestDist&&Icmm.compAngle(diff.angle(),tarAngle,(float)Math.pow(1-diff.len()/bestDist,.4f)*rad)){
+        if (diff.len() < bestDist&&Icmm.compAngle(diff.angle(),tarAngle,/*(float)Math.pow(1-diff.len()/bestDist,.4f)**/deg)){
           bestDist=diff.len();
           bestObj=o;
         }
@@ -2337,10 +2337,8 @@ public class Icmm extends ApplicationAdapter {
     return ang1;
   }
   static boolean compAngle(float ang1, float ang2, float degs){
-    ang1=normAngle(ang1);
-    ang2=normAngle(ang2);
-    float compAng=normAngle(Math.abs(ang1-ang2));
-    return (compAng<degs);
+    float compAng=normAngle(ang1-ang2);
+    return (Math.abs(compAng)<degs);
   }
   void die(){dying=true;}
   void win(){dying=true;winning=true;}
@@ -2728,24 +2726,6 @@ public class Icmm extends ApplicationAdapter {
     toInv(held);
     {
       Sword o = new Sword();
-      addObj(o);
-      toInv(o);
-    }
-    {
-      Flask o = new Flask();
-      o.setFlaskType(Flask.ANTIDOTE);
-      addObj(o);
-      toInv(o);
-    }
-    {
-      Flask o = new Flask();
-      o.setFlaskType(Flask.HEALTH);
-      addObj(o);
-      toInv(o);
-    }
-    {
-      Flask o = new Flask();
-      o.setFlaskType(Flask.HEALTH);
       addObj(o);
       toInv(o);
     }
@@ -3424,7 +3404,8 @@ public class Icmm extends ApplicationAdapter {
       { // controls
         guy.pos.set(cam.position);
         held.pos.set(cam.position);
-        held.angle=guy.getDir().angle();
+        guy.angle=held.angle=new Vector2(cam.direction.x,cam.direction.z).angle();
+        //held.angle=guy.getDir().angle();
         if (!dying){
           float ls = 170f;//lookspeed max
           float lsr = 670f;//lookspeed for reactions
