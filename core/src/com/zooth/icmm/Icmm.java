@@ -52,6 +52,7 @@ class Obj
   float renderDist;// used for render ordering
   boolean remove;// if true, will be removed this step
   boolean flipX;// whether or not to flip the tex
+  int viewPoints;// this # of angles this can billboard at (0 is inf)
   float pushFor = 0;// push the obj towards the camera
   long soundLoop=-1;// id of the looped sound
   String soundLoopName="";// name of the looped sound (for removal)
@@ -88,6 +89,7 @@ class Obj
   float ms=0;
   float vel=0;// velocity degrades unlike ms
   Vector2 getPos(){return new Vector2(pos.x,pos.z);}
+  void setColor(ShaderProgram sp){sp.setUniformf("u_color", 1,1,1,1);};
   void draw(ShaderProgram sp){// called when invoked
     if (tex!=null&&inWorld){
       String t = getTex();// if we have multiple texs
@@ -106,10 +108,15 @@ class Obj
         Vector2 viewp = new Vector2(game.getCurrCamPos2().x, game.getCurrCamPos2().y); 
         Vector2 thisp = new Vector2(pos.x, pos.z); 
         ang = thisp.cpy().sub(viewp).angle();
+        //if(this instanceof LionHead&&(int)ang%8==0)
+        //  Gdx.app.log("",""+ang);
+        if(viewPoints>0)
+          ang=(float)Math.round(ang/180f*(float)viewPoints/2f)*180f/(float)viewPoints*2f;
       }
       mat.rotate(Vector3.Y, -ang+90);
       mat.scale(scale,scale,scale);
       sp.setUniformMatrix("u_objectMatrix", mat);
+      setColor(sp);
       Mesh cm=customMesh();
       if (cm!=null){
         cm.render(sp, GL20.GL_TRIANGLES);
@@ -538,6 +545,7 @@ class WitchGoo extends Obj
 class LionHead extends Obj
 {
   LionHead(){
+    viewPoints=4;
     pushFor=.15f;
     tex="lionF.png";
     billboard=true;
@@ -1307,7 +1315,7 @@ class Worm extends Obj
     if (ai instanceof WormAI){
       WormAI wai = (WormAI)ai;
       if(wai.state==WormAI.ROAM)
-        game.loopSound("dig", getPos(), this,.2f);
+        game.loopSound("dig", getPos(), this,.5f);
       if(wai.state==WormAI.BURROW||wai.state==WormAI.DELAY)
         game.loopSound("dig", getPos(), this);
       else
@@ -1447,6 +1455,10 @@ class Knight extends Obj
     billboard=true;
     canHit=true;
     ai=new FightAI();
+  }
+  void setColor(ShaderProgram sp){
+    super.setColor(sp);
+    //sp.setUniformf("u_color", 1.5f,1.3f,.2f,1);
   }
   void fight(){
     game.playSound("swordW", getPos());
@@ -1862,7 +1874,8 @@ class WormAI extends AI{
     if(state==ROAM){
       if(actTime>3f){
         Vector2 guyDiff=obj.game.guy.getPos().cpy().sub(obj.getPos());
-        if(guyDiff.len()<6f&&Math.random()<.25f){
+        float chance=1f/((Worm)obj).connectedWorms.size;
+        if(guyDiff.len()<9f&&Math.random()<chance){
           actTime=0;
           state=BURROW;
         }else{
@@ -1878,7 +1891,7 @@ class WormAI extends AI{
       }
     }else
     if(state==BURROW){
-      if(actTime>1.5f){
+      if(actTime>3f){
         actTime=0;
         state=ROAM;
       }
@@ -3624,8 +3637,8 @@ public class Icmm extends ApplicationAdapter {
   // set the opengl color for this obj (green if poisoned)
   void setColor(ShaderProgram sp, Obj obj){
     if (obj.checkStatus(Obj.PSN)){
-      float psnW=1-(vizShrinkTime)*.7f;
-      sp.setUniformf("u_color", psnW,1,psnW,1);
+      float psnW=1-(vizShrinkTime)*.5f;
+      sp.setUniformf("u_color", psnW,1,(float)Math.pow(psnW,5f),1);
     }else
       sp.setUniformf("u_color", 1,1,1,1);
   }
@@ -3856,15 +3869,15 @@ public class Icmm extends ApplicationAdapter {
         if (j==0){
           sp.setUniformMatrix("u_projectionViewMatrix", cam.combined);
           if (!guy.checkStatus(Obj.PSN)){
-            sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,circR*outerCirc,circR*innerCirc);
+            sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,w*outerCirc,w*innerCirc);
           }else{
-            sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,circR*(outerCirc-shrink*vizShrinkTime),circR*(innerCirc-shrink*vizShrinkTime));
+            sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,w*(outerCirc-shrink*vizShrinkTime),w*(innerCirc-shrink*vizShrinkTime));
           }
           setColor(sp,guy);
           currCam = cam;
         }else{
           sp.setUniformMatrix("u_projectionViewMatrix", cam.combined);
-          sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,circR*outerCirc,circR*innerCirc);
+          sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,w*.5f,w*.4f);
           sp.setUniformf("u_color", 1,1,1,.5f);
           currCam = cam;
         }
@@ -4036,7 +4049,7 @@ public class Icmm extends ApplicationAdapter {
       {
         Gdx.gl.glClear(GL20.GL_DEPTH_BUFFER_BIT);
         setColor(sp,guy);
-        sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,circR*outerCirc,circR*innerCirc);
+        sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,600f,400f);
         if (!dying)
         {
           sp.setUniformMatrix("u_projectionViewMatrix", uicam.combined);
