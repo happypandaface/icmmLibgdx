@@ -38,6 +38,7 @@ class Obj
   static long PSN=(1<<0);
   // types
   static long ITEM=(1<<0);
+  static long NOCLIP=(1<<1);
   // item types
   static long HAND=(1<<0);
   static long WEAP=(1<<1);
@@ -541,7 +542,7 @@ class LionHead extends Obj
     tex="lionF.png";
     billboard=true;
     scale=.4f;
-    canTog=true;
+    //canTog=true;
     offY=.15f;
   }
   float castTimer=0;
@@ -1260,19 +1261,36 @@ class Wiz extends Obj
 class Worm extends Obj
 {
   Worm(){
+    canHit=true;
     radius=.4f;
     weight=2f;
     tex="wormUp.png";
     billboard=true;
-    ai=new WanderFightAI();
+    hp=3f;
+    ai=new WormAI();
     ms=.3f;
     customTileTester= new Icmm.TileTester(){
       boolean works(Tile t){return (t!=null&&t.checkType(Tile.DIRT)&&t.exists&&(t.type&~Tile.PIT)>0);}
     };
+    connectedWorms.add(this);
+  }
+  Array<Worm> connectedWorms=new Array<Worm>();
+  void addWorm(Worm w){
+    for(int i = connectedWorms.size-1;i>=0;--i)
+      w.addWorm_r(connectedWorms.get(i));
+    for(int i = connectedWorms.size-1;i>=0;--i)
+      connectedWorms.get(i).addWorm_r(w);
+  }
+  void addWorm_r(Worm w){
+    connectedWorms.add(w);
+  }
+  void remWorm(Worm w){
+    for(int i = connectedWorms.size-1;i>=0;--i)
+      if(connectedWorms.get(i)==w)
+        connectedWorms.removeIndex(i);
   }
   void step(float dt){
     super.step(dt);
-    game.loopSound("dig", getPos(), this);
     if (ai instanceof WanderFightAI){
       WanderFightAI wfai = (WanderFightAI)ai;
       if ((int)(wfai.actTime*8f)%2==0)
@@ -1284,6 +1302,45 @@ class Worm extends Obj
       }else
       if (wfai.currAct==WanderFightAI.ACT_WALK){
         tex="wormDig.png";
+      }
+    }else
+    if (ai instanceof WormAI){
+      WormAI wai = (WormAI)ai;
+      if(wai.state==WormAI.ROAM)
+        game.loopSound("dig", getPos(), this,.2f);
+      if(wai.state==WormAI.BURROW||wai.state==WormAI.DELAY)
+        game.loopSound("dig", getPos(), this);
+      else
+        game.stopLoop(this);
+      if(wai.state==WormAI.BURST)
+        tex="wormOut.png";
+      else
+        tex="wormDig.png";
+      if ((int)(wai.actTime*8f)%2==0)
+        flipX=true;
+      else
+        flipX=false;
+    }
+  }
+  void damaged(float f, Obj o){
+    if (ai instanceof WormAI){
+      WormAI wai = (WormAI)ai;
+      if(wai.state==WormAI.BURST||Icmm.dev==1){
+        hp-=f;
+        if(hp<=0){
+          remove=true;
+          game.playSound("deepDead",getPos());
+          Grave g = new Grave();
+          g.setPos(getPos());
+          g.tex="wormDig.png";
+          game.addObj(g);
+          for(int i = connectedWorms.size-1;i>=0;--i)
+            if(connectedWorms.size>i)
+              connectedWorms.get(i).remWorm(this);
+          if(connectedWorms.size==0)
+            dropInv();
+        }else
+          game.playSound("deepHurt",getPos());
       }
     }
   }
@@ -1716,6 +1773,40 @@ class CrystalDoor extends Obj
     game.playSound("door", getPos());
     solid=!solid;if(solid){offY=0;}else{offY=1.1f;}}
 }
+class MudWall extends Obj
+{
+  MudWall(){
+    tall=true;
+    solid=true;
+    stationary=true;
+    tex="mudWall.png";
+  }
+  void init(){
+    if(!solid){
+      tex=null;
+    }
+  }
+  void tog(Obj o){
+    game.playSound("door", getPos());
+    solid=!solid;if(solid){tex="mudWall.png";}else{tex=null;}}
+}
+class Trigger extends Obj
+{
+  Trigger(){
+    radius=.75f;
+    addType(Obj.NOCLIP);
+  }
+  Array<Obj> objsToToggle=new Array<Obj>();void addObjToToggle(Obj o){objsToToggle.add(o);}
+  boolean triggered=false;
+  void getHit(Obj obj){
+    if (!triggered&&obj instanceof Guy){
+      triggered=true;
+      for(Obj o : objsToToggle){
+        o.tog(this);
+      }
+    }
+  }
+}
 class Door extends Obj
 {
   Door(){
@@ -1751,6 +1842,75 @@ class WanderAI extends AI{
     if (walkCount<=0){
       walkCount=minWCount+(float)Math.random()*(maxWCount-minWCount);
       obj.angle = ((float)Math.random()*360);
+    }
+    obj.oldStep(dt);
+  }
+}
+class WormAI extends AI{
+  static int ROAM = 1;
+  static int BURROW = 2;
+  static int BURST = 3;
+  static int VULN = 4;
+  static int DELAY = 5;
+  int state = ROAM;
+  float walkCount=0;
+  float minWCount=1f;
+  float maxWCount=2f;
+  float actTime=0;
+  void act(Obj obj, float dt){
+    actTime+=dt*(.5f+(float)Math.random());
+    if(state==ROAM){
+      if(actTime>3f){
+        Vector2 guyDiff=obj.game.guy.getPos().cpy().sub(obj.getPos());
+        if(guyDiff.len()<6f&&Math.random()<.25f){
+          actTime=0;
+          state=BURROW;
+        }else{
+          actTime-=(float)Math.random()*3f+1f;
+        }
+      }
+      obj.addType(Obj.NOCLIP);
+      obj.ms=.5f;
+      walkCount -= dt;
+      if (walkCount<=0){
+        walkCount=minWCount+(float)Math.random()*(maxWCount-minWCount);
+        obj.angle = ((float)Math.random()*360);
+      }
+    }else
+    if(state==BURROW){
+      if(actTime>1.5f){
+        actTime=0;
+        state=ROAM;
+      }
+      obj.addType(Obj.NOCLIP);
+      Vector2 guyDiff=obj.game.guy.getPos().cpy().sub(obj.getPos());
+      if(guyDiff.len()<.3f){
+        state=DELAY;
+        obj.ms=0;
+        actTime=0;
+      }else{
+        obj.angle=guyDiff.angle();
+        obj.ms=1.5f;
+      }
+    }else
+    if(state==DELAY){
+      obj.ms=0;
+      if(actTime>.75f){
+        state=BURST;
+        obj.ms=0;
+        actTime=0;
+        Vector2 guyDiff=obj.game.guy.getPos().cpy().sub(obj.getPos());
+        obj.removeType(Obj.NOCLIP);
+        obj.game.playSound("earthImpact",obj.getPos());
+        if(guyDiff.len()<.5f){
+          obj.game.guy.damaged(1f, obj);
+        }
+      }
+    }else
+    if(state==BURST){
+      obj.ms=0;
+      if(actTime>2f)
+        state=ROAM;
     }
     obj.oldStep(dt);
   }
@@ -2273,6 +2433,9 @@ public class Icmm extends ApplicationAdapter {
     }
   }
   void loopSound(String s, Vector2 pos, Obj o){
+    loopSound(s,pos,o,1f);
+  }
+  void loopSound(String s, Vector2 pos, Obj o,float v){
     Vector2 diff = getGuyPos().cpy().sub(pos);
     float maxDist=10f;
     float pow=4f;
@@ -2290,11 +2453,11 @@ public class Icmm extends ApplicationAdapter {
       if (vol>.95f)
         pan=0;
       if (o.loop!=null)
-        o.loop.setPan(o.soundLoop, -1*pan, vol);
+        o.loop.setPan(o.soundLoop, -1*pan, vol*v);
       else 
       {
         o.loop = ass.get(s+".ogg", Sound.class);
-        o.soundLoop = o.loop.loop(vol, 1f, pan);
+        o.soundLoop = o.loop.loop(vol*v, 1f, pan);
         o.soundLoopName=s;
       }
     }
@@ -2382,7 +2545,11 @@ public class Icmm extends ApplicationAdapter {
       p.setColor(1,0,0,1);p.drawPixel(0,0);
       red = new Texture(p);
     }
+    //asset loading
     ass.load("ratD.ogg", Sound.class);
+    ass.load("earthImpact.ogg", Sound.class);
+    ass.load("deepHurt.ogg", Sound.class);
+    ass.load("deepDead.ogg", Sound.class);
     ass.load("drinkPot.ogg", Sound.class);
     ass.load("short.ogg", Sound.class);
     ass.load("dig.ogg", Sound.class);
@@ -2399,6 +2566,7 @@ public class Icmm extends ApplicationAdapter {
     ass.load("fireW.ogg", Sound.class);
     ass.load("swordW.ogg", Sound.class);
     ass.load("dog.png", Texture.class);
+    ass.load("mudWall.png", Texture.class);
     ass.load("spiderA1.png", Texture.class);
     ass.load("spiderA2.png", Texture.class);
     ass.load("necro1.png", Texture.class);
@@ -3089,7 +3257,7 @@ public class Icmm extends ApplicationAdapter {
         for (int y = 11; y < 14; ++y)
           tileAt(x,y).setExists(true).addType(Tile.DIRT);
       {
-        Obj o = new Worm();
+        Worm o = new Worm();
         o.setPos(2, 12);
         addObj(o);
       }
@@ -3100,6 +3268,9 @@ public class Icmm extends ApplicationAdapter {
           tileAt(x,y).setExists(true);
       {
         Obj o = new Necro();
+        Obj c = new Crystal();
+        o.toInv(c,null);
+        addObj(c);
         o.setPos(9, 13);
         addObj(o);
       }
@@ -3137,8 +3308,25 @@ public class Icmm extends ApplicationAdapter {
       for (int x=11; x<13; ++x)
         tileAt(x,12).setExists(true).addType(Tile.TUNNEL);
       for (int x=13; x<16; ++x)
-        for (int y=10; y<13; ++y)
+        for (int y=10; y<14; ++y)
           tileAt(x,y).setExists(true).addType(Tile.TUNNEL);
+      for (int x=16; x<18; ++x)
+        tileAt(x,12).setExists(true).addType(Tile.TUNNEL);
+      {
+        Obj o = new Pedestal();
+        Reliquary r = new Reliquary();
+        CrystalDoor cd = new CrystalDoor();
+        r.addDoor(cd);
+        cd.setPos(16,12);
+        r.setPos(15,13);
+        o.setPos(r.getPos());
+        addObj(cd);
+        addObj(r);
+        addObj(o);
+        Portal p = new Portal();
+        p.setPos(17,12);
+        addObj(p);
+      }
       /* set all to dirt
       for (int x=srtx; x<endx;++x)
         for (int y=srty; y<endy;++y){
@@ -3147,6 +3335,62 @@ public class Icmm extends ApplicationAdapter {
           }
         }
       */
+    }else
+    if(level==3){
+      for (int x = 0; x < 3; ++x)
+        tileAt(x,3).setExists(true).addType(Tile.DIRT|Tile.TUNNEL);
+      for (int y = 0; y < 3; ++y)
+        tileAt(0,y).setExists(true).addType(Tile.DIRT|Tile.TUNNEL);
+      {
+        Trigger t = new Trigger();
+        t.setPos(3,3);
+        Obj o = new MudWall();
+        o.solid=false;
+        o.setPos(2,3);
+        t.addObjToToggle(o);
+        addObj(t);
+        addObj(o);
+      }
+      {
+        Worm w=null;
+        Crystal c = new Crystal();
+        addObj(c);
+        for (int x = 3; x < 11; ++x)
+          for (int y = 1; y < 9; ++y){
+            tileAt(x,y).setExists(true).addType(Tile.DIRT);
+            if((y+x)%13==0){
+              Worm o = new Worm();
+              o.toInv(c,null);
+              if(w==null)
+                w=o;
+              else
+                w.addWorm(o);
+              o.setPos(x,y);
+              addObj(o);
+            }
+          }
+      }
+      for(int y = 9;y<12;++y)
+        tileAt(7,y).setExists(true).addType(Tile.DIRT|Tile.TUNNEL);
+      tileAt(6,9).setExists(true).addType(Tile.DIRT|Tile.TUNNEL);
+      {
+        CrystalDoor cd = new CrystalDoor();
+        cd.setPos(7,10);
+        cd.angle=90;
+        Reliquary r = new Reliquary();
+        r.setPos(6,9);
+        r.addDoor(cd);
+        Pedestal p = new Pedestal();
+        p.setPos(r.getPos());
+        addObj(p);
+        addObj(r);
+        addObj(cd);
+      }
+      {
+        Obj p = new Portal();
+        p.setPos(7,11);
+        addObj(p);
+      }
     }
 	}
   Obj anim = null;
@@ -3355,16 +3599,18 @@ public class Icmm extends ApplicationAdapter {
                 rr.obj=o;
                 o.getHit(obj);
                 obj.getHit(o);
-                float totWeight=(!obj.stationary?o.weight:0)+(!o.stationary?obj.weight:0);
-                if (!obj.stationary)
-                  rtn.add(diff.nor().scl(-dist*o.weight/totWeight));
-                if (!o.stationary)
-                {
-                  Vector2 newOPos = o.getPos().cpy().add(diff.nor().scl(dist*obj.weight/totWeight));
-                  Vector3 n3 = new Vector3(newOPos.x, o.pos.y, newOPos.y);
-                  n3 = solidRectify(n3, o, new RectRTN());
-                  if (n3!=null)
-                    o.pos.set(n3);
+                if(!o.checkType(Obj.NOCLIP)&&!obj.checkType(Obj.NOCLIP)){
+                  float totWeight=(!obj.stationary?o.weight:0)+(!o.stationary?obj.weight:0);
+                  if (!obj.stationary)
+                    rtn.add(diff.nor().scl(-dist*o.weight/totWeight));
+                  if (!o.stationary)
+                  {
+                    Vector2 newOPos = o.getPos().cpy().add(diff.nor().scl(dist*obj.weight/totWeight));
+                    Vector3 n3 = new Vector3(newOPos.x, o.pos.y, newOPos.y);
+                    n3 = solidRectify(n3, o, new RectRTN());
+                    if (n3!=null)
+                      o.pos.set(n3);
+                  }
                 }
               }
             }
@@ -3576,7 +3822,18 @@ public class Icmm extends ApplicationAdapter {
       // rendering (drawing)
       float w = Gdx.graphics.getWidth();
       float h = Gdx.graphics.getHeight();
-      Gdx.gl.glClearColor(0, .5f, 0, 1);
+      // for poison:
+      if(guy.checkStatus(Obj.PSN)){
+        if (guy.psnTimeC<1.0f){
+          vizShrinkTime=1-(float)Math.cos(guy.psnTimeC*Math.PI/2f);
+        }else
+        if (guy.psnTime<1.0f){
+          vizShrinkTime=1-(float)Math.cos(guy.psnTime*Math.PI/2f);
+        }else
+          vizShrinkTime=1;
+      }else
+        vizShrinkTime=0;
+      Gdx.gl.glClearColor(0, .5f*vizShrinkTime, 0, 1);
       Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT | GL20.GL_DEPTH_BUFFER_BIT);
       Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
       Gdx.gl.glEnable(GL20.GL_DEPTH_TEST);
@@ -3590,17 +3847,6 @@ public class Icmm extends ApplicationAdapter {
       sp.setUniformf("u_static", 0);
       // code for visions:
       sp.setUniformf("u_color", 1,1,1,1);
-      // for poison:
-      if(guy.checkStatus(Obj.PSN)){
-        if (guy.psnTimeC<1.0f){
-          vizShrinkTime=1-(float)Math.cos(guy.psnTimeC*Math.PI/2f);
-        }else
-        if (guy.psnTime<1.0f){
-          vizShrinkTime=1-(float)Math.cos(guy.psnTime*Math.PI/2f);
-        }else
-          vizShrinkTime=1;
-      }else
-        vizShrinkTime=0;
       // for circ:
       float circR=(w>h?w:h);
       float outerCirc=(float)Math.sqrt(2);
@@ -3610,15 +3856,15 @@ public class Icmm extends ApplicationAdapter {
         if (j==0){
           sp.setUniformMatrix("u_projectionViewMatrix", cam.combined);
           if (!guy.checkStatus(Obj.PSN)){
-            sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,w*outerCirc,w*innerCirc);
+            sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,circR*outerCirc,circR*innerCirc);
           }else{
-            sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,w*(outerCirc-shrink*vizShrinkTime),w*(innerCirc-shrink*vizShrinkTime));
+            sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,circR*(outerCirc-shrink*vizShrinkTime),circR*(innerCirc-shrink*vizShrinkTime));
           }
           setColor(sp,guy);
           currCam = cam;
         }else{
           sp.setUniformMatrix("u_projectionViewMatrix", cam.combined);
-          sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,w*.5f,w*.4f);
+          sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,circR*outerCirc,circR*innerCirc);
           sp.setUniformf("u_color", 1,1,1,.5f);
           currCam = cam;
         }
@@ -3790,7 +4036,7 @@ public class Icmm extends ApplicationAdapter {
       {
         Gdx.gl.glClear(GL20.GL_DEPTH_BUFFER_BIT);
         setColor(sp,guy);
-        sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,600f,400f);
+        sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,circR*outerCirc,circR*innerCirc);
         if (!dying)
         {
           sp.setUniformMatrix("u_projectionViewMatrix", uicam.combined);
