@@ -1445,6 +1445,36 @@ class Skeli extends Obj
     }
   }
 }
+class SilverKnight extends Knight{
+  SilverKnight(){
+    super();
+    NormAI nai=new NormAI();
+    ai=nai;
+    //ms=1.4f;
+    //dmg=1.25f;
+  }
+  void setColor(ShaderProgram sp){
+    sp.setUniformf("u_color", 2f, 2f, 2f, 1f);
+  }
+  String getTex(){
+    if(ai instanceof NormAI){
+      NormAI nai = (NormAI)ai;
+      if (nai.state==NormAI.ROAM||nai.state==NormAI.SEEK){
+        if((int)(nai.actTime*8)%2==0)
+          return "knightW1.png";
+        else
+          return "knightW2.png";
+      }else
+      if(nai.state==NormAI.FIGHT){
+        if(nai.actTime<.5f)
+          return "knightA1.png";
+        else
+          return "knightA2.png";
+      }
+    }
+    return "knight.png";
+  }
+}
 class Knight extends Obj
 {
   Knight(){
@@ -1456,6 +1486,7 @@ class Knight extends Obj
     canHit=true;
     ai=new FightAI();
   }
+  float dmg=1f;
   void setColor(ShaderProgram sp){
     super.setColor(sp);
     //sp.setUniformf("u_color", 1.5f,1.3f,.2f,1);
@@ -1470,7 +1501,7 @@ class Knight extends Obj
     };
     Obj bestObj = game.getFirst(this, 90, game.diffHit, iot);
     if (bestObj != null){
-      bestObj.damaged(1f,this);
+      bestObj.damaged(dmg,this);
     }
   }
   float walkCount=0;
@@ -1924,6 +1955,94 @@ class WormAI extends AI{
       obj.ms=0;
       if(actTime>2f)
         state=ROAM;
+    }
+    obj.oldStep(dt);
+  }
+}
+class NormAI extends AI{
+  static int ROAM=1;
+  static int SEEK=2;
+  static int FIGHT=3;
+  int state = ROAM;
+  float actTime=0;
+  Array<Tile> path;
+  Icmm.ObjTester iot;
+  NormAI(){
+    iot = new Icmm.ObjTester(){
+      boolean works(Obj o){
+        return (o instanceof Guy);
+      }
+    };
+  }
+  int roamDist=6;
+  int seekDist=13;
+  float roamSpeed=1f;
+  float seekSpeed=1.4f;
+  float fightSpeed=.1f;
+  float minWCount=1f;
+  float maxWCount=2f;
+  float walkCount=0;
+  float mustSeekTime=0;
+  void act(Obj obj, float dt){
+    // for attacking later
+    boolean setup=false;
+    if(actTime<.5f)
+      setup=true;
+    actTime+=dt*(.5f+(float)Math.random());
+    if(state==ROAM){
+      if(actTime>1.5f){
+        path = obj.game.getPath(obj.getPos(), roamDist, obj, iot);
+        if(path!=null){
+          state=SEEK;
+        }
+        actTime=0;
+      }
+      obj.ms=roamSpeed;
+      walkCount -= dt;
+      if (walkCount<=0){
+        walkCount=minWCount+(float)Math.random()*(maxWCount-minWCount);
+        obj.angle = ((float)Math.random()*360);
+      }
+    }else
+    if(state==SEEK){
+      if(path==null||actTime>1.5f){
+        path = obj.game.getPath(obj.getPos(), seekDist, obj, iot);
+        if(path==null){
+          state=ROAM;
+        }
+        actTime=0;
+      }
+      if(path!=null){
+        Vector2 diff=null;
+        obj.ms=seekSpeed;
+        // has to be >=2 otherwise diff might cause null exceptions later when we check if we want to attack
+        if(path.size>=2){
+          Tile t = path.get(path.size-2);
+          diff=t.getPos().cpy().sub(obj.getPos());
+          if(diff.len()<.1f){
+            // goto next space
+            path.pop();
+          }
+          obj.angle=diff.angle();
+        }
+        mustSeekTime-=dt;
+        if(mustSeekTime<=0&&(path.size<2||(path.size==2&&diff.len()<.3f))){
+          actTime=0;
+          state=FIGHT;
+        }
+      }
+    }else
+    if(state==FIGHT){
+      obj.ms=fightSpeed;
+      if(setup&&actTime>=.5f){
+        obj.fight();
+      }
+      if(actTime>1f){
+        mustSeekTime=.75f;
+        path=null;
+        state=SEEK;
+        actTime=0;
+      }
     }
     obj.oldStep(dt);
   }
@@ -3404,6 +3523,21 @@ public class Icmm extends ApplicationAdapter {
         p.setPos(7,11);
         addObj(p);
       }
+    }else
+    if(level==4){
+      for(int x=0;x<4;++x)
+        for(int y=0;y<4;++y)
+          tileAt(x,y).setExists(true);
+      {
+        Obj o = new SilverKnight();
+        o.setPos(3,3);
+        addObj(o);
+      }
+      for(int x=4;x<6;++x)
+        tileAt(x,3).setExists(true).addType(Tile.TUNNEL);
+      for(int x=6;x<10;++x)
+        for(int y=1;y<5;++y)
+          tileAt(x,y).setExists(true);
     }
 	}
   Obj anim = null;
