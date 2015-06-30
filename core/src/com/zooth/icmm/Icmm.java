@@ -890,6 +890,64 @@ class Bomb extends Obj
     }
   }
 }
+class Book extends Obj
+{
+  static int EMPTY=0;
+  static int FB=1;
+  int bookType=EMPTY;void setBookType(int t){bookType=t;}
+  Book(){
+    addType(Obj.ITEM);
+    addItemType(Obj.POTS);
+    tex="flaskE.png";
+    sel="flaskEH.png";
+    billboard=true;
+    scale=.5f;
+    canTog=true;
+    offY=0;//.25f;
+  }
+  String getTex(){
+    if(bookType==FB){
+      return "bookFB.png";
+    }else
+    return "bookE.png";
+  }
+  String getSel(){
+    if(bookType==FB){
+      return "bookFBE.png";
+    }else
+    return "flaskEH.png";
+  }
+  void step(float dt){
+    super.step(dt);
+  }
+  void tog(Obj o){
+    if (inWorld)
+      game.toInv(this);
+  }
+  void act(){
+    if(flaskType!=EMPTY){
+      game.anim=this;
+      game.playSound("drinkPot", getPos());
+      actTime=0;
+    }
+  }
+  float actTime = 0;
+  float actTimeMax = .5f;
+  boolean actf(float dt){
+    boolean setup=(actTime<actTimeMax*.5f);
+    actTime+=dt;
+    if(actTime<actTimeMax*.5f)
+      sel="sword2.png";
+    if(actTime>actTimeMax*.5f){
+      sel="sword1.png";
+      if (setup){
+      }
+    }
+    if (actTime>actTimeMax)
+      return true;
+    return false;
+  }
+}
 class Flask extends Obj
 {
   static int EMPTY=0;
@@ -1445,6 +1503,22 @@ class Skeli extends Obj
     }
   }
 }
+class GoldKnight extends SilverKnight{
+  GoldKnight(){
+    super();
+    if(ai instanceof NormAI){
+      NormAI nai = (NormAI)ai;
+      nai.hitTime=.25f;
+      nai.recoilTime=.4f;
+      nai.seekSpeed=1.6f;
+      nai.plusDist=.1f;
+      nai.mustSeekTime=.1f;
+    }
+  }
+  void setColor(ShaderProgram sp){
+    sp.setUniformf("u_color", 2f, 2f, 1f, 1f);
+  }
+}
 class SilverKnight extends Knight{
   SilverKnight(){
     super();
@@ -1466,7 +1540,7 @@ class SilverKnight extends Knight{
           return "knightW2.png";
       }else
       if(nai.state==NormAI.FIGHT){
-        if(nai.actTime<.5f)
+        if(nai.actTime<nai.hitTime)
           return "knightA1.png";
         else
           return "knightA2.png";
@@ -1975,18 +2049,22 @@ class NormAI extends AI{
     };
   }
   int roamDist=6;
-  int seekDist=13;
+  int seekDist=10;
   float roamSpeed=1f;
   float seekSpeed=1.4f;
   float fightSpeed=.1f;
+  float plusDist=.3f;
+  float hitTime=.5f;
+  float recoilTime=.5f;
   float minWCount=1f;
   float maxWCount=2f;
   float walkCount=0;
-  float mustSeekTime=0;
+  float mustSeekTime=.75f;
+  float mustSeekCount=0;
   void act(Obj obj, float dt){
     // for attacking later
     boolean setup=false;
-    if(actTime<.5f)
+    if(actTime<hitTime)
       setup=true;
     actTime+=dt*(.5f+(float)Math.random());
     if(state==ROAM){
@@ -2025,8 +2103,8 @@ class NormAI extends AI{
           }
           obj.angle=diff.angle();
         }
-        mustSeekTime-=dt;
-        if(mustSeekTime<=0&&(path.size<2||(path.size==2&&diff.len()<.3f))){
+        mustSeekCount-=dt;
+        if(mustSeekCount<=0&&(path.size<2||(path.size==2&&diff.len()<plusDist))){
           actTime=0;
           state=FIGHT;
         }
@@ -2034,11 +2112,11 @@ class NormAI extends AI{
     }else
     if(state==FIGHT){
       obj.ms=fightSpeed;
-      if(setup&&actTime>=.5f){
+      if(setup&&actTime>=hitTime){
         obj.fight();
       }
-      if(actTime>1f){
-        mustSeekTime=.75f;
+      if(actTime>hitTime+recoilTime){
+        mustSeekCount=mustSeekTime;
         path=null;
         state=SEEK;
         actTime=0;
@@ -2651,7 +2729,19 @@ public class Icmm extends ApplicationAdapter {
   Camera uicam;
   Camera currCam;
   ShaderProgram sp;
-  static AssetManager ass = new AssetManager(); 
+  static AssetManager ass = new AssetManager(){
+    public synchronized <T> T get (String fileName, Class<T> type) {
+      if(isLoaded(fileName))
+        return super.get(fileName, type);
+      else{
+        if(type==Texture.class)
+          return (T)Icmm.white;
+        if(type==Sound.class)
+          return (T)Icmm.blank;
+      }
+      return null;
+    }
+  };
   Mesh floor;
   Mesh wall;
   Mesh tunnelWall;
@@ -2663,7 +2753,9 @@ public class Icmm extends ApplicationAdapter {
   Mesh pedestal;
   Mesh pedestalTop;
   Mesh inWorldTall;
-  Texture red;
+  static Texture red;
+  static Texture white;
+  static Sound blank;
   int srtx = 0;
   int endx = 100;
   int srty = 0;
@@ -2677,6 +2769,12 @@ public class Icmm extends ApplicationAdapter {
       p.setColor(1,0,0,1);p.drawPixel(0,0);
       red = new Texture(p);
     }
+    {
+      Pixmap p = new Pixmap(1,1,Pixmap.Format.RGBA8888);
+      p.setColor(1,1,1,1);p.drawPixel(0,0);
+      white = new Texture(p);
+    }
+    blank=Gdx.audio.newSound(Gdx.files.internal("blank.ogg"));
     //asset loading
     ass.load("ratD.ogg", Sound.class);
     ass.load("earthImpact.ogg", Sound.class);
@@ -3049,7 +3147,7 @@ public class Icmm extends ApplicationAdapter {
       {
         Obj o = new Wiz();
         o.setPos(7,15);
-        addObj(o);
+        //addObj(o);
       }
       {
         Obj w=new Knight();
@@ -3529,7 +3627,7 @@ public class Icmm extends ApplicationAdapter {
         for(int y=0;y<4;++y)
           tileAt(x,y).setExists(true);
       {
-        Obj o = new SilverKnight();
+        Obj o = new GoldKnight();
         o.setPos(3,3);
         addObj(o);
       }
@@ -3537,6 +3635,34 @@ public class Icmm extends ApplicationAdapter {
         tileAt(x,3).setExists(true).addType(Tile.TUNNEL);
       for(int x=6;x<10;++x)
         for(int y=1;y<5;++y)
+          tileAt(x,y).setExists(true);
+      for(int y=4;y<7;++y)
+        tileAt(10,y).setExists(true).addType(Tile.TUNNEL);
+      {
+        Worm w=null;
+        Flask f = new Flask();
+        f.setFlaskType(Flask.HEALTH);
+        addObj(f);
+        for(int x=9;x<13;++x)
+          for(int y=7;y<11;++y){
+            tileAt(x,y).setExists(true).addType(Tile.DIRT);
+            if((x+y)%4==0){
+              Worm o = new Worm();
+              if(w==null)
+                w=o;
+              else
+                w.addWorm(o);
+              o.setPos(x,y);
+              o.toInv(f,null);
+              addObj(o);
+            }
+          }
+      }
+      for(int y=11;y<14;++y)
+        tileAt(12,y).setExists(true).addType(Tile.TUNNEL);
+      tileAt(13,13).setExists(true).addType(Tile.TUNNEL);
+      for(int x=14;x<18;++x)
+        for(int y=13;y<16;++y)
           tileAt(x,y).setExists(true);
     }
 	}
@@ -3792,7 +3918,7 @@ public class Icmm extends ApplicationAdapter {
       dt=maxStep;
     }
     // make sure it's loaded first
-    if (ass.update())
+    if (ass.update()||true)
     {
       { // controls
         guy.pos.set(cam.position);
