@@ -52,6 +52,7 @@ class Obj
   float renderDist;// used for render ordering
   boolean remove;// if true, will be removed this step
   boolean flipX;// whether or not to flip the tex
+  boolean flipSel2X;// whether to flip the other hand (very limited use)
   int viewPoints;// this # of angles this can billboard at (0 is inf)
   float pushFor = 0;// push the obj towards the camera
   long soundLoop=-1;// id of the looped sound
@@ -85,7 +86,7 @@ class Obj
   float radius=-1;// if bigger than 0 it means the obj is hittable (not solid)
   boolean canTog;
   boolean canMove=true;
-  Vector3 pos=new Vector3();void setPos(float x,float y){pos=new Vector3(x,0,y);}void setPos(Vector2 n){setPos(n.x,n.y);}
+  Vector3 pos=new Vector3();void setPos(float x,float y){pos=new Vector3(x,0,y);}void setPos(Vector2 n){setPos(n.x,n.y);}void addPos(Vector2 p){pos.x+=p.x;pos.z+=p.y;}
   float ms=0;
   float vel=0;// velocity degrades unlike ms
   Vector2 getPos(){return new Vector2(pos.x,pos.z);}
@@ -131,6 +132,9 @@ class Obj
       }
     }
   }
+  String getSel2(){
+    return null;
+  }
   String getSel(){
     return sel;
   }
@@ -138,12 +142,16 @@ class Obj
     return null;
   }
   Icmm.TileTester customTileTester=null;
+  float psnThresh=0f;//min health psn will leave you at (0 is no min);
   void step(float dt){if(inWorld){if(ai!=null){ai.act(this,dt);}oldStep(dt);}
     if (checkStatus(PSN)){
       psnTimeC+=dt;psnTime-=dt;if(psnTime<=0){removeStatus(PSN);}
-      if(hp>.1f){
+      if(hp>psnThresh){
         hp-=dt*.05f;
-        if(hp<.1f){hp=.1f;}
+        if(hp<psnThresh){hp=psnThresh;}
+      }
+      if(hp<=0){
+        damaged(1f,null);//trigger death
       }
     }
   }
@@ -184,7 +192,22 @@ class Obj
     if (inWorld)
       game.toInv(this);
   }
-  void damaged(float f, Obj o){}
+  boolean canDie;
+  void damaged(float f, Obj hitter){
+    if(canDie){
+      hp-=f;
+      if (hp<=0){
+        dropInv();
+        remove=true;
+        game.playSound("manHit", getPos());
+        Grave o = new Grave();
+        o.pos=pos.cpy();
+        game.addObj(o);
+      }else{
+        game.playSound("armorHit", getPos());
+      }
+    }
+  }
   void heal(float f, Obj o){hp+=f;if(hp>maxhp){hp=maxhp;}}
   void getHit(Obj o){};
   Array<Obj> inv = new Array<Obj>();
@@ -229,7 +252,8 @@ class Guy extends Obj
     radius=.3f;
   }
   void damaged(float f, Obj o){
-    game.tweenAng(o.getPos().cpy().sub(getPos()).angle());
+    if(o!=null)
+      game.tweenAng(o.getPos().cpy().sub(getPos()).angle());
     game.playSound("wizD", getPos());
     if (!(Icmm.dev==1)){
       if(o instanceof Spider){
@@ -389,6 +413,7 @@ class Exp extends Obj
 class FB extends Obj
 {
   FB(){
+    addType(Obj.NOCLIP);
     radius=.2f;
     tex="fb1.png";
     scale=.55f;
@@ -913,9 +938,23 @@ class Book extends Obj
   }
   String getSel(){
     if(bookType==FB){
-      return "bookFBE.png";
+      if(game.anim==this){
+        if((int)(actTime*8)%2==0)
+          return "bookFBH2.png";
+      }
+      return "bookFBH.png";
     }else
-    return "flaskEH.png";
+    return "bookEH.png";
+  }
+  String getSel2(){
+    if(game.anim==this){
+      flipSel2X=true;
+      if((int)(actTime*8)%2==0)
+        return "zap.png";
+      else
+        return "hand.png";
+    }
+    return null;
   }
   void step(float dt){
     super.step(dt);
@@ -925,26 +964,32 @@ class Book extends Obj
       game.toInv(this);
   }
   void act(){
-    if(flaskType!=EMPTY){
+    if(bookType!=EMPTY){
       game.anim=this;
-      game.playSound("drinkPot", getPos());
       actTime=0;
     }
   }
   float actTime = 0;
-  float actTimeMax = .5f;
+  float actTimeMax = 1.5f;
+  float actTimeRatio = .75f;
   boolean actf(float dt){
-    boolean setup=(actTime<actTimeMax*.5f);
+    boolean setup=(actTime<actTimeMax*actTimeRatio);
+    game.loopSound("electric", getPos(), this, .25f);
     actTime+=dt;
-    if(actTime<actTimeMax*.5f)
-      sel="sword2.png";
-    if(actTime>actTimeMax*.5f){
-      sel="sword1.png";
+    if(actTime>actTimeMax*actTimeRatio){
       if (setup){
+        FB fb = new FB();
+        fb.dontKill=this.holder;
+        fb.dir=getDir().cpy();
+        fb.pos=pos.cpy();
+        fb.addPos(fb.dir.cpy().scl(.5f));
+        game.addObj(fb);
       }
     }
-    if (actTime>actTimeMax)
+    if (actTime>actTimeMax){
+      game.stopLoop(this);
       return true;
+    }
     return false;
   }
 }
@@ -1032,6 +1077,33 @@ class Flask extends Obj
     if (actTime>actTimeMax)
       return true;
     return false;
+  }
+}
+class StarBurst extends Obj
+{
+  StarBurst(){
+    solid=false;
+    tex="starBurst.png";
+    billboard=true;
+    scale=1f;
+    //offY=-.25f;
+  }
+  float starCount=0;
+  String getTex(){
+    if(starCount>.66f)
+      return "starBurst1.png";
+    else
+    if(starCount>.33f)
+      return "starBurst2.png";
+    return "starBurst3.png";
+  }
+  void step(float dt){
+    super.step(dt);
+    starCount+=dt;
+    if(starCount>1f)
+    {
+      remove = true;
+    }
   }
 }
 class Grave extends Obj
@@ -1272,10 +1344,34 @@ class Wiz extends Obj
   float maxCCount= 4;
   float castTimer = 0;
   Vector2 dir=new Vector2();
+  float teleCoolDown=0;
   void step(float dt){
     //Vector2 camp = new Vector2(game.cam.position.x, game.cam.position.z); 
     //Vector2 diff = camp.sub(getPos());
     //diff.nor().scl(dt);
+    teleCoolDown-=dt;
+    if(teleCoolDown<=0){
+      Vector2 diff=game.guy.getPos().cpy().sub(getPos());
+      if(diff.len()<4){
+        final Obj away = game.guy;
+        Icmm.TileTester tt = new Icmm.TileTester(){
+          boolean works(Tile t){return (t!=null&&t.exists&&(t.type&~Tile.PIT)>0)&&away.getPos().cpy().sub(t.getPos()).len()>4;}
+        };
+        Array<Tile> tiles = game.getPath(getPos(), 8, this, tt);
+        teleCoolDown=1f;
+        if(tiles!=null)
+        {
+          teleCoolDown=2f;
+          castTimer=0;
+          {
+            StarBurst o = new StarBurst();
+            o.pos=pos.cpy();
+            game.addObj(o);
+          }
+          setPos(tiles.get(0).getPos());
+        }
+      }
+    }
     if (castTimer > 0)
     {
       castTimer -= dt;
@@ -1319,9 +1415,11 @@ class Wiz extends Obj
     dropInv();
     remove=true;
     game.playSound("manHit", getPos());
-    WizGoo o = new WizGoo();
-    o.pos=pos.cpy();
-    game.addObj(o);
+    {
+      WizGoo o = new WizGoo();
+      o.pos=pos.cpy();
+      game.addObj(o);
+    }
   }
 }
 class Worm extends Obj
@@ -1513,10 +1611,78 @@ class GoldKnight extends SilverKnight{
       nai.seekSpeed=1.6f;
       nai.plusDist=.1f;
       nai.mustSeekTime=.1f;
+      nai.roamDist=4;
+      nai.seekDist=6;
     }
   }
   void setColor(ShaderProgram sp){
     sp.setUniformf("u_color", 2f, 2f, 1f, 1f);
+  }
+}
+class Goblin extends Obj{
+  Goblin(){
+    super();
+    canDie=true;
+    NormAI nai=new NormAI();
+    nai.hitTime=.1f;
+    nai.recoilTime=.1f;
+    nai.mustSeekTime=5f;
+    nai.roamDist=4;
+    nai.seekDist=10;
+    ai=nai;
+    radius=.40f;
+    weight=.1f;
+    ms=.9f;
+    tex="knight.png";
+    billboard=true;
+    canHit=true;
+    //ms=1.4f;
+    //dmg=1.25f;
+  }
+  void setColor(ShaderProgram sp){
+    sp.setUniformf("u_color", 1f, 1f, 1f, 1f);
+  }
+  void step(float dt){
+    super.step(dt);
+    if(lit){
+      litTime-=dt;
+      if(litTime<=0){
+        remove=true;
+        {
+          Exp exp = new Exp();
+          exp.setPos(getPos());
+          game.addObj(exp);
+        }
+        for (float deg=0; deg<=360; deg+=(360f/8f)){
+          Exp exp = new Exp();
+          exp.delay(.1f);
+          Vector2 expPos=getPos().add(new Vector2(1,0).rotate(deg));
+          exp.pos=new Vector3(expPos.x, 0, expPos.y);
+          game.addObj(exp);
+        }
+      }
+    }
+  }
+  boolean lit=false;
+  float litTime=0f;
+  void fight(){
+    game.playSound("match", getPos());
+    litTime=2f;
+    lit=true;
+  }
+  String getTex(){
+    if(ai instanceof NormAI){
+      NormAI nai = (NormAI)ai;
+      if (nai.state==NormAI.ROAM||nai.state==NormAI.SEEK){
+        if((int)(nai.actTime*8)%2==0)
+          flipX=true;
+        else
+          flipX=false;
+        if(lit&&(int)(nai.actTime*14)%2==0)
+          return "goblinF.png";
+      }
+    }
+    return "goblin.png";
   }
 }
 class SilverKnight extends Knight{
@@ -2049,7 +2215,7 @@ class NormAI extends AI{
     };
   }
   int roamDist=6;
-  int seekDist=10;
+  int seekDist=8;
   float roamSpeed=1f;
   float seekSpeed=1.4f;
   float fightSpeed=.1f;
@@ -2553,7 +2719,7 @@ public class Icmm extends ApplicationAdapter {
         Tile sAdd = tileAt(curPos);
         TileDepth td = new TileDepth();
         td.tile=sAdd;
-        td.depth=depth;
+        td.depth=depth+1;
         td.lastTile=t;
         if (sAdd!=null){
           boolean didThisTile=false;
@@ -2777,6 +2943,7 @@ public class Icmm extends ApplicationAdapter {
     blank=Gdx.audio.newSound(Gdx.files.internal("blank.ogg"));
     //asset loading
     ass.load("ratD.ogg", Sound.class);
+    ass.load("electric.ogg", Sound.class);
     ass.load("earthImpact.ogg", Sound.class);
     ass.load("deepHurt.ogg", Sound.class);
     ass.load("deepDead.ogg", Sound.class);
@@ -2795,7 +2962,17 @@ public class Icmm extends ApplicationAdapter {
     ass.load("fire.ogg", Sound.class);
     ass.load("fireW.ogg", Sound.class);
     ass.load("swordW.ogg", Sound.class);
+    ass.load("match.ogg", Sound.class);
     ass.load("dog.png", Texture.class);
+    ass.load("starBurst1.png", Texture.class);
+    ass.load("starBurst2.png", Texture.class);
+    ass.load("starBurst3.png", Texture.class);
+    ass.load("goblin.png", Texture.class);
+    ass.load("goblinF.png", Texture.class);
+    ass.load("bookFBH2.png", Texture.class);
+    ass.load("zap.png", Texture.class);
+    ass.load("bookFB.png", Texture.class);
+    ass.load("bookFBH.png", Texture.class);
     ass.load("mudWall.png", Texture.class);
     ass.load("spiderA1.png", Texture.class);
     ass.load("spiderA2.png", Texture.class);
@@ -3664,6 +3841,71 @@ public class Icmm extends ApplicationAdapter {
       for(int x=14;x<18;++x)
         for(int y=13;y<16;++y)
           tileAt(x,y).setExists(true);
+      {
+        Book o = new Book();
+        o.setPos(15,14);
+        o.setBookType(Book.FB);
+        addObj(o);
+      }
+      for(int x=18;x<20;++x)
+        tileAt(x,14).setExists(true).addType(Tile.TUNNEL);
+      {
+        ExpBarrel o = new ExpBarrel();
+        o.setPos(18,14);
+        addObj(o);
+      }
+      for(int x=20;x<23;++x)
+        for(int y=13;y<16;++y)
+          tileAt(x,y).setExists(true);
+      for(int y=16;y<18;++y)
+        tileAt(21,y).setExists(true).addType(Tile.TUNNEL);
+      {
+        Door d = new Door();
+        d.angle=90;
+        d.setPos(21,16);
+        addObj(d);
+      }
+      for(int x=20;x<23;++x)
+        for(int y=18;y<21;++y)
+          tileAt(x,y).setExists(true);
+      {
+        Obj o = new Goblin();
+        o.setPos(22,19);
+        addObj(o);
+        Obj c = new Crystal();
+        addObj(c);
+        o.toInv(c,null);
+      }
+      for(int x=23;x<26;++x)
+        tileAt(x,14).setExists(true).addType(Tile.TUNNEL);
+      {
+        CrystalDoor cd = new CrystalDoor();
+        cd.setPos(23,14);
+        Reliquary r = new Reliquary();
+        r.setPos(22,13);
+        r.addDoor(cd);
+        Pedestal p = new Pedestal();
+        p.setPos(r.getPos());
+        addObj(p);
+        addObj(r);
+        addObj(cd);
+      }
+      {
+        Portal p = new Portal();
+        p.setPos(25,14);
+        addObj(p);
+      }
+    }else
+    if(level==5){
+      guy.setPos(7,5);
+      for(int x=5;x<12;++x)
+        for(int y=5;y<12;++y)
+          tileAt(x,y).setExists(true);
+      {
+        Wiz o = new Wiz();
+        o.setPos(6, 7);
+        addObj(o);
+      }
     }
 	}
   Obj anim = null;
@@ -4319,6 +4561,19 @@ public class Icmm extends ApplicationAdapter {
             sp.setUniformMatrix("u_objectMatrix", mat);
             ass.get(held.getSel(), Texture.class).bind();
             uiitem.render(sp, GL20.GL_TRIANGLES);
+          }
+          {
+            String sel2=held.getSel2();
+            if(sel2!=null){
+              Matrix4 mat = new Matrix4();
+              mat.translate(-.25f, -.25f, 0);
+              mat.scl(.5f,.5f,1);
+              if(held.flipSel2X)
+                mat.scl(-1,1,1);
+              sp.setUniformMatrix("u_objectMatrix", mat);
+              ass.get(sel2, Texture.class).bind();
+              fullui.render(sp, GL20.GL_TRIANGLES);
+            }
           }
           // healthbar
           {
