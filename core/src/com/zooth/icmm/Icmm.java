@@ -410,6 +410,49 @@ class Exp extends Obj
     }
   }
 }
+class Purp extends Obj
+{
+  Purp(){
+    addType(Obj.NOCLIP);
+    radius=.2f;
+    tex="purp.png";
+    scale=.55f;
+    billboard=true;
+    customTileTester=new Icmm.TileTester(){
+      boolean works(Tile t){
+        return (t!=null&&t.exists);
+      }
+    };
+    ms=4f;
+  }
+  Obj dontKill=null;
+  float spinTimer=0;
+  Vector2 dir=new Vector2(1,0);
+  void step(float dt){
+    game.loopSound("fire", getPos(), this);
+    spinTimer+=dt;
+    if ((int)(spinTimer*14)%3==0)
+      tex="purp.png";
+    else
+    if ((int)(spinTimer*14)%3==1)
+      tex="purp.png";
+    else
+      tex="purp.png";
+    angle=dir.angle();
+    super.step(dt);
+  }
+  void getHit(Obj o){
+    if (!remove&&o!=dontKill)
+    {
+      remove=true;
+      if(o instanceof Rat){
+        o.ai=null;
+        o.ms=1.75f;
+        game.possess=o;
+      }
+    }
+  }
+}
 class FB extends Obj
 {
   FB(){
@@ -919,10 +962,11 @@ class Book extends Obj
 {
   static int EMPTY=0;
   static int FB=1;
+  static int POSSESS=2;
   int bookType=EMPTY;void setBookType(int t){bookType=t;}
   Book(){
     addType(Obj.ITEM);
-    addItemType(Obj.POTS);
+    addItemType(Obj.MAGIC);
     tex="flaskE.png";
     sel="flaskEH.png";
     billboard=true;
@@ -944,6 +988,13 @@ class Book extends Obj
       }
       return "bookFBH.png";
     }else
+    if(bookType==POSSESS){
+      if(game.anim==this){
+        if((int)(actTime*8)%2==0)
+          return "bookPH2.png";
+      }
+      return "bookPH.png";
+    }
     return "bookEH.png";
   }
   String getSel2(){
@@ -978,12 +1029,22 @@ class Book extends Obj
     actTime+=dt;
     if(actTime>actTimeMax*actTimeRatio){
       if (setup){
-        FB fb = new FB();
-        fb.dontKill=this.holder;
-        fb.dir=getDir().cpy();
-        fb.pos=pos.cpy();
-        fb.addPos(fb.dir.cpy().scl(.5f));
-        game.addObj(fb);
+        if(bookType==Book.FB){
+          FB fb = new FB();
+          fb.dontKill=this.holder;
+          fb.dir=getDir().cpy();
+          fb.pos=pos.cpy();
+          fb.addPos(fb.dir.cpy().scl(.5f));
+          game.addObj(fb);
+        }else
+        if(bookType==Book.POSSESS){
+          Purp fb = new Purp();
+          fb.dontKill=this.holder;
+          fb.dir=getDir().cpy();
+          fb.pos=pos.cpy();
+          fb.addPos(fb.dir.cpy().scl(.5f));
+          game.addObj(fb);
+        }
       }
     }
     if (actTime>actTimeMax){
@@ -1089,18 +1150,19 @@ class StarBurst extends Obj
     //offY=-.25f;
   }
   float starCount=0;
+  float totTime=.5f;
   String getTex(){
-    if(starCount>.66f)
+    if(starCount>totTime*2f/3f)
       return "starBurst1.png";
     else
-    if(starCount>.33f)
+    if(starCount>totTime/3f)
       return "starBurst2.png";
     return "starBurst3.png";
   }
   void step(float dt){
     super.step(dt);
     starCount+=dt;
-    if(starCount>1f)
+    if(starCount>totTime)
     {
       remove = true;
     }
@@ -1271,13 +1333,14 @@ class Rat extends Obj
   void step(float dt){
     super.step(dt);
     if(ai==null){
+    /*
       if (!dead){
         changeAngCount-=dt;
         if (changeAngCount<=0){
           angle=(float)Math.random()*360f;
           changeAngCount=changeAngCountMin+(float)Math.random()*(changeAngCountMax-changeAngCountMin);
         }
-      }
+      }*/
     }
   }
   String getTex(){
@@ -1285,33 +1348,35 @@ class Rat extends Obj
     float camAng = camp.sub(getPos()).angle();
     //float camAng = new Vector2(game.cam.direction.x, game.cam.direction.z).angle();
     float diff = Icmm.normAngle(camAng-angle);
-    if (diff < 45 && diff > -45){
-      if ((int)(((FleeAI)ai).checkSightCount*8)%2==0)
-        flipX=true;
-      else
+    if(ai instanceof FleeAI){
+      if (diff < 45 && diff > -45){
+        if ((int)(((FleeAI)ai).checkSightCount*8)%2==0)
+          flipX=true;
+        else
+          flipX=false;
+        return "ratD1.png";
+      }else
+      if (diff < 135 && diff > 45){
         flipX=false;
-      return "ratD1.png";
-    }else
-    if (diff < 135 && diff > 45){
-      flipX=false;
-      if ((int)(((FleeAI)ai).checkSightCount*8)%2==0)
-        return "ratR1.png";
-      else
-        return "ratR2.png";
-    }else
-    if (diff > -135 && diff < -45){
-      flipX=true;
-      if ((int)(((FleeAI)ai).checkSightCount*8)%2==0)
-        return "ratR1.png";
-      else
-        return "ratR2.png";
-    }else
-    if (diff > 135 || diff < -135){
-      if ((int)(((FleeAI)ai).checkSightCount*8)%2==0)
+        if ((int)(((FleeAI)ai).checkSightCount*8)%2==0)
+          return "ratR1.png";
+        else
+          return "ratR2.png";
+      }else
+      if (diff > -135 && diff < -45){
         flipX=true;
-      else
-        flipX=false;
-      return "ratU1.png";
+        if ((int)(((FleeAI)ai).checkSightCount*8)%2==0)
+          return "ratR1.png";
+        else
+          return "ratR2.png";
+      }else
+      if (diff > 135 || diff < -135){
+        if ((int)(((FleeAI)ai).checkSightCount*8)%2==0)
+          flipX=true;
+        else
+          flipX=false;
+        return "ratU1.png";
+      }
     }
     return null;
   }
@@ -1352,18 +1417,19 @@ class Wiz extends Obj
     teleCoolDown-=dt;
     if(teleCoolDown<=0){
       Vector2 diff=game.guy.getPos().cpy().sub(getPos());
-      if(diff.len()<4){
+      if(diff.len()<3){
         final Obj away = game.guy;
         Icmm.TileTester tt = new Icmm.TileTester(){
-          boolean works(Tile t){return (t!=null&&t.exists&&(t.type&~Tile.PIT)>0)&&away.getPos().cpy().sub(t.getPos()).len()>4;}
+          boolean works(Tile t){return (t!=null&&t.exists&&(t.type&~Tile.PIT)>0)&&away.getPos().cpy().sub(t.getPos()).len()>6;}
         };
-        Array<Tile> tiles = game.getPath(getPos(), 8, this, tt);
-        teleCoolDown=1f;
+        Array<Tile> tiles = game.getPath(getPos(), 10, this, tt);
+        teleCoolDown=.5f;// dont wanna tile check all the time
         if(tiles!=null)
         {
-          teleCoolDown=2f;
+          teleCoolDown=1f;
           castTimer=0;
           {
+            game.playSound("tele", getPos(), .5f);
             StarBurst o = new StarBurst();
             o.pos=pos.cpy();
             game.addObj(o);
@@ -2839,6 +2905,9 @@ public class Icmm extends ApplicationAdapter {
     }
   }
   void playSound(String s, Vector2 pos){
+    playSound(s, pos, 1.0f);
+  }
+  void playSound(String s, Vector2 pos, float v){
     Vector2 diff = getGuyPos().cpy().sub(pos);
     float maxDist=10f;
     float pow=4f;
@@ -2851,7 +2920,7 @@ public class Icmm extends ApplicationAdapter {
       else
       if (pan>0)
         pan=1-pan;
-      ass.get(s+".ogg", Sound.class).play(vol, 1f, pan);
+      ass.get(s+".ogg", Sound.class).play(vol*v, 1f, pan);
     }
   }
   Vector2 getCurrCamPos2(){
@@ -2943,6 +3012,7 @@ public class Icmm extends ApplicationAdapter {
     blank=Gdx.audio.newSound(Gdx.files.internal("blank.ogg"));
     //asset loading
     ass.load("ratD.ogg", Sound.class);
+    ass.load("tele.ogg", Sound.class);
     ass.load("electric.ogg", Sound.class);
     ass.load("earthImpact.ogg", Sound.class);
     ass.load("deepHurt.ogg", Sound.class);
@@ -2964,6 +3034,7 @@ public class Icmm extends ApplicationAdapter {
     ass.load("swordW.ogg", Sound.class);
     ass.load("match.ogg", Sound.class);
     ass.load("dog.png", Texture.class);
+    ass.load("purp.png", Texture.class);
     ass.load("starBurst1.png", Texture.class);
     ass.load("starBurst2.png", Texture.class);
     ass.load("starBurst3.png", Texture.class);
@@ -3102,6 +3173,7 @@ public class Icmm extends ApplicationAdapter {
   }
   int level=0;
   void reset(){
+    possess=null;
     tiles=new Tile[endx][endy];
     for (int x=srtx;x<endx;++x)
       for (int y=srty;y<endy;++y)
@@ -3898,12 +3970,51 @@ public class Icmm extends ApplicationAdapter {
     }else
     if(level==5){
       guy.setPos(7,5);
-      for(int x=5;x<12;++x)
-        for(int y=5;y<12;++y)
+      for(int x=5;x<9;++x)
+        for(int y=5;y<9;++y)
           tileAt(x,y).setExists(true);
+      {
+        Book o = new Book();
+        o.setPos(6, 13);
+        o.setBookType(Book.FB);
+        addObj(o);
+      }
       {
         Wiz o = new Wiz();
         o.setPos(6, 7);
+        addObj(o);
+      }
+      for(int y=9;y<12;++y)
+        tileAt(6,y).setExists(true).addType(Tile.TUNNEL);
+      for(int x=6;x<10;++x)
+        for(int y=12;y<15;++y)
+          tileAt(x,y).setExists(true);
+      for(int y=15;y<17;++y)
+        tileAt(6,y).setExists(true).addType(Tile.TUNNEL);
+      {
+        Door d = new Door();
+        d.setPos(6,15);
+        d.angle=90;
+        addObj(d);
+      }
+      for(int x=4;x<8;++x)
+        for(int y=17;y<20;++y)
+          tileAt(x,y).setExists(true);
+      {
+        Book o = new Book();
+        o.bookType=Book.POSSESS;
+        o.setPos(5, 18);
+        addObj(o);
+      }
+      {
+        Rat o = new Rat();
+        o.setPos(5, 18);
+        addObj(o);
+      }
+      {
+        Obj[] os=new Obj[]{new GoldKnight(), new Wiz(), new Goblin(), new Dog()};
+        Obj o = os[(int)Math.floor(Math.random()*os.length)];
+        o.setPos(5, 18);
         addObj(o);
       }
     }
@@ -4149,6 +4260,7 @@ public class Icmm extends ApplicationAdapter {
   float maxStep = .05f;
   float totTime=0;// for seeding randomness
   float vizShrinkTime=0;// for global vizshrink functs
+  Obj possess=null;
 	@Override
 	public void render () {
     float dt = Gdx.graphics.getDeltaTime();
@@ -4163,6 +4275,8 @@ public class Icmm extends ApplicationAdapter {
     if (ass.update()||true)
     {
       { // controls
+        if(possess!=null&&possess.remove)
+          possess=null;
         guy.pos.set(cam.position);
         held.pos.set(cam.position);
         guy.angle=held.angle=new Vector2(cam.direction.x,cam.direction.z).angle();
@@ -4176,6 +4290,11 @@ public class Icmm extends ApplicationAdapter {
           float msp = 15f;//movespeed add per sec
           float msd = 15f;//movespeed add per sec
           Vector3 newPos = cam.position.cpy();
+          Vector3 lookDir = cam.direction.cpy();
+          if(possess!=null){
+            newPos=possess.pos.cpy();
+            lookDir=new Vector3(possess.getDir().x,0,possess.getDir().y).nor();
+          }
           // check for dev code
           Character addPressed=' ';
           if (Gdx.input.isKeyJustPressed(Input.Keys.Z)){addPressed='Z';}
@@ -4234,7 +4353,10 @@ public class Icmm extends ApplicationAdapter {
                   lsm=0;
               }
             }
-            cam.rotate(Vector3.Y, dt*lsm);
+            if(possess!=null)
+              possess.angle-=dt*lsm;
+            else
+              cam.rotate(Vector3.Y, dt*lsm);
           }
           if (Gdx.input.isKeyPressed(Input.Keys.I)){
             if (msm<0)
@@ -4262,50 +4384,60 @@ public class Icmm extends ApplicationAdapter {
                 msm=0;
             }
           }
-          newPos.add(cam.direction.cpy().scl(dt*msm));
-          int keyHit=-1;
-          if (anim==null){if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_1)){keyHit=1;}
-           if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_2)){keyHit=2;}
-           if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_3)){keyHit=3;}
-           if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_4)){keyHit=4;}
-           if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_5)){keyHit=5;}
-           if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_6)){keyHit=6;}
-           if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_7)){keyHit=7;}
-           if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_8)){keyHit=8;}
-           if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_9)){keyHit=9;}
-           if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_0)){keyHit=0;}
-          }
-          if(keyHit>0){//0 is awkward
-            switchInvTo(keyHit);
-          }
-          if (anim==null&&Gdx.input.isKeyJustPressed(Input.Keys.E)){
-            switchInv(1);
-          }
-          if (anim==null&&Gdx.input.isKeyJustPressed(Input.Keys.Q)){
-            switchInv(-1);
-          }
-          if (Gdx.input.isKeyJustPressed(Input.Keys.R)){
-            if (Gdx.input.isKeyPressed(Input.Keys.SHIFT_LEFT)){
-              level++;
-            }
-            if (Gdx.input.isKeyPressed(Input.Keys.SHIFT_RIGHT)){
-              level--;
-            }
-            needsReset=true;
-          }
-          if (Gdx.input.isKeyJustPressed(Input.Keys.D)&&anim==null){
-            if (!(held instanceof Hand))
-              held.drop();
-          }
-          if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)&&anim==null){
-            held.act();
-          }
-          if (Icmm.dev==1){
+          newPos.add(lookDir.cpy().scl(dt*msm));
+          if (Icmm.dev==1&&possess==null){
             cam.position.set(newPos);
           }else{
-            newPos = rectify(newPos,guy);
-            if (newPos != null)
+            newPos = rectify(newPos,possess==null?guy:possess);
+            if (newPos != null&&possess==null)
               cam.position.set(newPos);
+            else
+            if(newPos != null&&possess!=null)
+              possess.setPos(newPos.x,newPos.z);
+          }
+          if(possess==null){
+            int keyHit=-1;
+            if (anim==null){if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_1)){keyHit=1;}
+             if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_2)){keyHit=2;}
+             if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_3)){keyHit=3;}
+             if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_4)){keyHit=4;}
+             if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_5)){keyHit=5;}
+             if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_6)){keyHit=6;}
+             if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_7)){keyHit=7;}
+             if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_8)){keyHit=8;}
+             if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_9)){keyHit=9;}
+             if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_0)){keyHit=0;}
+            }
+            if(keyHit>0){//0 is awkward
+              switchInvTo(keyHit);
+            }
+            if (anim==null&&Gdx.input.isKeyJustPressed(Input.Keys.E)){
+              switchInv(1);
+            }
+            if (anim==null&&Gdx.input.isKeyJustPressed(Input.Keys.Q)){
+              switchInv(-1);
+            }
+            if (Gdx.input.isKeyJustPressed(Input.Keys.R)){
+              if (Gdx.input.isKeyPressed(Input.Keys.SHIFT_LEFT)){
+                level++;
+              }
+              if (Gdx.input.isKeyPressed(Input.Keys.SHIFT_RIGHT)){
+                level--;
+              }
+              needsReset=true;
+            }
+            if (Gdx.input.isKeyJustPressed(Input.Keys.D)&&anim==null){
+              if (!(held instanceof Hand))
+                held.drop();
+            }
+            if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)&&anim==null){
+              held.act();
+            }
+          }else{
+            if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)){
+              possess.ai=new FleeAI();
+              possess=null;
+            }
           }
           // do held obj anim (also logic)
           if (anim!=null)
@@ -4378,10 +4510,21 @@ public class Icmm extends ApplicationAdapter {
           setColor(sp,guy);
           currCam = cam;
         }else{
-          sp.setUniformMatrix("u_projectionViewMatrix", cam.combined);
-          sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,w*.5f,w*.4f);
-          sp.setUniformf("u_color", 1,1,1,.5f);
-          currCam = cam;
+          if(possess!=null){
+            cam2.position.set(possess.pos).add(0,guyHeight,0);
+            Vector2 diff = possess.getDir();
+            cam2.direction.set(diff.x,0,diff.y);
+            cam2.update();
+            sp.setUniformMatrix("u_projectionViewMatrix", cam2.combined);
+            sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,w*.35f,w*.3f);
+            sp.setUniformf("u_color", 1,1,1,1f);
+            currCam = cam2;
+          }else{
+            sp.setUniformMatrix("u_projectionViewMatrix", cam.combined);
+            sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,w*.5f,w*.4f);
+            sp.setUniformf("u_color", 1,1,1,.5f);
+            currCam = cam;
+          }
         }
         Gdx.gl.glClear(GL20.GL_DEPTH_BUFFER_BIT);
         sp.setUniformf("u_brightness", 10.0f);
@@ -4397,6 +4540,10 @@ public class Icmm extends ApplicationAdapter {
             shouldDrawObjs=false;
           }else{
             shouldDrawWalls=false;
+          }
+          if(possess!=null){
+            shouldDrawWalls=true;
+            shouldDrawObjs=true;
           }
         }
         // draw walls:
@@ -4552,7 +4699,7 @@ public class Icmm extends ApplicationAdapter {
         Gdx.gl.glClear(GL20.GL_DEPTH_BUFFER_BIT);
         setColor(sp,guy);
         sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,600f,400f);
-        if (!dying)
+        if (!dying&&possess==null)
         {
           sp.setUniformMatrix("u_projectionViewMatrix", uicam.combined);
           sp.setUniformf("u_light", uicam.position);
