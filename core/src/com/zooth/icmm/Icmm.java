@@ -39,6 +39,7 @@ class Obj
   // types
   static long ITEM=(1<<0);
   static long NOCLIP=(1<<1);
+  static long UNDER=(1<<2);// rats can sneak under
   // item types
   static long HAND=(1<<0);
   static long WEAP=(1<<1);
@@ -141,6 +142,12 @@ class Obj
   String getTex(){
     return null;
   }
+  // default obj tester (for rectifying) there should be a second one for hitting
+  Icmm.ObjTester objTester = new Icmm.ObjTester(this){
+    boolean works(Obj o){
+      return (!o.checkType(Obj.NOCLIP)&&!user.checkType(Obj.NOCLIP));
+    }
+  };boolean testRect(Obj o){return objTester.works(o);}
   Icmm.TileTester customTileTester=null;
   float psnThresh=0f;//min health psn will leave you at (0 is no min);
   void step(float dt){if(inWorld){if(ai!=null){ai.act(this,dt);}oldStep(dt);}
@@ -1327,6 +1334,12 @@ class Rat extends Obj
     ms=1.75f;
     angle=90;
   }
+  Icmm.ObjTester objTesterNotDoor=new Icmm.ObjTester(this){
+    boolean works(Obj o){
+      return (!o.checkType(Obj.UNDER)&&!user.checkType(Obj.UNDER));
+    }
+  };
+  boolean testRect(Obj o){return objTester.works(o)&&objTesterNotDoor.works(o);}
   float changeAngCount=0;
   float changeAngCountMax=2f;
   float changeAngCountMin=1f;
@@ -2085,6 +2098,7 @@ class Sign extends Obj
 class LockedDoor extends Obj
 {
   LockedDoor(){
+    addType(Obj.UNDER);
     tall=true;
     solid=true;
     stationary=true;
@@ -2105,6 +2119,7 @@ class LockedDoor extends Obj
 class CrystalDoor extends Obj
 {
   CrystalDoor(){
+    addType(Obj.UNDER);
     tall=true;
     solid=true;
     stationary=true;
@@ -2159,6 +2174,7 @@ class Trigger extends Obj
 class Door extends Obj
 {
   Door(){
+    addType(Obj.UNDER);
     canTog=true;
     tall=true;
     solid=true;
@@ -2593,6 +2609,8 @@ public class Icmm extends ApplicationAdapter {
   static int dev=0;
   Array<Character> devPressed=new Array<Character>();// for entering dev code
   static class ObjTester{
+    public ObjTester(){}
+    Obj user;public ObjTester(Obj u){user=u;}
     boolean works(Obj o){return true;}
   }
   static class TileTester{
@@ -3982,7 +4000,7 @@ public class Icmm extends ApplicationAdapter {
       {
         Wiz o = new Wiz();
         o.setPos(6, 7);
-        addObj(o);
+        //addObj(o);
       }
       for(int y=9;y<12;++y)
         tileAt(6,y).setExists(true).addType(Tile.TUNNEL);
@@ -4015,7 +4033,7 @@ public class Icmm extends ApplicationAdapter {
         Obj[] os=new Obj[]{new GoldKnight(), new Wiz(), new Goblin(), new Dog()};
         Obj o = os[(int)Math.floor(Math.random()*os.length)];
         o.setPos(5, 18);
-        addObj(o);
+        //addObj(o);
       }
     }
 	}
@@ -4142,31 +4160,33 @@ public class Icmm extends ApplicationAdapter {
         Obj o = objs.get(i);
         if (o.inWorld&&o!=obj&&o!=null)
         {
-          boolean inDontHit = false;
-          if (rr.dontHit!=null)
-            for(Obj odh : rr.dontHit){
-              if (odh==o)
-                inDontHit=true;
-            }
-          if (o.solid&&!inDontHit){
-            float shoveX=o.shoveX;
-            float shoveY=o.shoveY;
-            float dx = rtn.x-o.pos.x;
-            float dy = rtn.y-o.pos.z;
-            if (Math.abs(dx) < shoveX &&
-              Math.abs(dy) < shoveY){// needs push
-              rr.hit=true;
-              obj.getHit(o);
-              if (Math.abs(dx)<Math.abs(dy)){
-                if (dy<0)
-                  rtn.add(0,-dy-shoveY);
-                else
-                  rtn.add(0,-dy+shoveY);
-              }else{
-                if (dx<0)
-                  rtn.add(-dx-shoveX,0);
-                else
-                  rtn.add(-dx+shoveX,0);
+          if(o.testRect(obj)&&obj.testRect(o)){
+            boolean inDontHit = false;
+            if (rr.dontHit!=null)
+              for(Obj odh : rr.dontHit){
+                if (odh==o)
+                  inDontHit=true;
+              }
+            if (o.solid&&!inDontHit){
+              float shoveX=o.shoveX;
+              float shoveY=o.shoveY;
+              float dx = rtn.x-o.pos.x;
+              float dy = rtn.y-o.pos.z;
+              if (Math.abs(dx) < shoveX &&
+                Math.abs(dy) < shoveY){// needs push
+                rr.hit=true;
+                obj.getHit(o);
+                if (Math.abs(dx)<Math.abs(dy)){
+                  if (dy<0)
+                    rtn.add(0,-dy-shoveY);
+                  else
+                    rtn.add(0,-dy+shoveY);
+                }else{
+                  if (dx<0)
+                    rtn.add(-dx-shoveX,0);
+                  else
+                    rtn.add(-dx+shoveX,0);
+                }
               }
             }
           }
@@ -4225,7 +4245,7 @@ public class Icmm extends ApplicationAdapter {
                 rr.obj=o;
                 o.getHit(obj);
                 obj.getHit(o);
-                if(!o.checkType(Obj.NOCLIP)&&!obj.checkType(Obj.NOCLIP)){
+                if(obj.testRect(o)&&o.testRect(obj)){//!o.checkType(Obj.NOCLIP)&&!obj.checkType(Obj.NOCLIP)){
                   float totWeight=(!obj.stationary?o.weight:0)+(!o.stationary?obj.weight:0);
                   if (!obj.stationary)
                     rtn.add(diff.nor().scl(-dist*o.weight/totWeight));
@@ -4261,6 +4281,7 @@ public class Icmm extends ApplicationAdapter {
   float totTime=0;// for seeding randomness
   float vizShrinkTime=0;// for global vizshrink functs
   Obj possess=null;
+  Obj lastPossess=null;
 	@Override
 	public void render () {
     float dt = Gdx.graphics.getDeltaTime();
@@ -4418,13 +4439,17 @@ public class Icmm extends ApplicationAdapter {
               switchInv(-1);
             }
             if (Gdx.input.isKeyJustPressed(Input.Keys.R)){
-              if (Gdx.input.isKeyPressed(Input.Keys.SHIFT_LEFT)){
+              if (Icmm.dev==1&&Gdx.input.isKeyPressed(Input.Keys.SHIFT_LEFT)){
                 level++;
+                needsReset=true;
               }
-              if (Gdx.input.isKeyPressed(Input.Keys.SHIFT_RIGHT)){
+              if (Icmm.dev==1&&Gdx.input.isKeyPressed(Input.Keys.SHIFT_RIGHT)){
                 level--;
+                needsReset=true;
               }
-              needsReset=true;
+              if (Gdx.input.isKeyPressed(Input.Keys.CONTROL_LEFT)){
+                needsReset=true;
+              }
             }
             if (Gdx.input.isKeyJustPressed(Input.Keys.D)&&anim==null){
               if (!(held instanceof Hand))
@@ -4470,6 +4495,17 @@ public class Icmm extends ApplicationAdapter {
       float w = Gdx.graphics.getWidth();
       float h = Gdx.graphics.getHeight();
       // for poison:
+      if(possess!=null){
+        vizShrinkTime+=dt;
+        if(vizShrinkTime>1)
+          vizShrinkTime=1;
+      }
+      if(lastPossess!=null){
+        vizShrinkTime-=dt;
+        if(vizShrinkTime<=0){
+          vizShrinkTime=0;
+        }
+      }
       if(guy.checkStatus(Obj.PSN)){
         if (guy.psnTimeC<1.0f){
           vizShrinkTime=1-(float)Math.cos(guy.psnTimeC*Math.PI/2f);
