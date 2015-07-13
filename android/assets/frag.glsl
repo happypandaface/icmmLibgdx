@@ -2,6 +2,7 @@ uniform sampler2D u_texture0;
 uniform vec4 u_circ;
 uniform float u_seed;
 uniform float u_static;
+uniform vec4 u_texCoords;
 varying float v_brightness;
 varying vec2 v_uv;
 varying vec4 v_color;
@@ -12,7 +13,7 @@ void main()
 {
   float dist = length(gl_FragCoord.xy-u_circ.xy);
   if (dist<u_circ.z){
-    vec4 color = texture2D(u_texture0, v_uv)*v_color;
+    vec4 color = texture2D(u_texture0, v_uv*u_texCoords.zw+u_texCoords.xy)*v_color;
     if(dist>u_circ.w){
       color=vec4(color.rgb, color.a*(1.0-(dist-u_circ.w)/(u_circ.z-u_circ.w)));
     }

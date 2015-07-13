@@ -94,6 +94,10 @@ class Obj
   float vel=0;// velocity degrades unlike ms
   Vector2 getPos(){return new Vector2(pos.x,pos.z);}
   void setColor(ShaderProgram sp){sp.setUniformf("u_color", 1,1,1,1);};
+  Vector2 texCoordsStart=new Vector2(0,0);
+  Vector2 texCoordsScale=new Vector2(1,1);
+  //Vector2 texCoordsScale=new Vector2(.5f,.5f);
+  void setCoords(ShaderProgram sp){sp.setUniformf("u_texCoords", texCoordsStart.x, texCoordsStart.y, texCoordsScale.x, texCoordsScale.y);};
   void draw(ShaderProgram sp){// called when invoked
     if (tex!=null&&inWorld){
       String t = getTex();// if we have multiple texs
@@ -121,6 +125,7 @@ class Obj
       mat.scale(scale,scale,scale);
       sp.setUniformMatrix("u_objectMatrix", mat);
       setColor(sp);
+      setCoords(sp);
       Mesh cm=customMesh();
       if (cm!=null){
         cm.render(sp, GL20.GL_TRIANGLES);
@@ -1313,6 +1318,11 @@ class Spider extends Obj
       bestObj.damaged(1f,this);
     }
   }
+  void step(float dt){
+    if(inWorld)
+      game.loopSound("spider", getPos(), this);
+    super.step(dt);
+  }
   String getTex(){
     if (ai instanceof WanderFightAI){
       WanderFightAI wfai = (WanderFightAI)ai;
@@ -1899,6 +1909,13 @@ class SilverKnight extends Knight{
       }
     }
     return "knight.png";
+  }
+}
+class Dwarf extends Obj
+{
+  Dwarf(){
+    billboard=true;
+    tex="dwarf.png";
   }
 }
 class Knight extends Obj
@@ -3192,6 +3209,7 @@ public class Icmm extends ApplicationAdapter {
     blank=Gdx.audio.newSound(Gdx.files.internal("blank.ogg"));
     //asset loading
     ass.load("ratD.ogg", Sound.class);
+    ass.load("spider.ogg", Sound.class);
     ass.load("splat.ogg", Sound.class);
     ass.load("splatD.ogg", Sound.class);
     ass.load("tele.ogg", Sound.class);
@@ -4394,22 +4412,22 @@ public class Icmm extends ApplicationAdapter {
         Obj o = objs.get(i);
         if (o.inWorld&&o!=obj&&o!=null)
         {
-          if(o.testRect(obj)&&obj.testRect(o)){
-            boolean inDontHit = false;
-            if (rr.dontHit!=null)
-              for(Obj odh : rr.dontHit){
-                if (odh==o)
-                  inDontHit=true;
-              }
-            if (o.solid&&!inDontHit){
-              float shoveX=o.shoveX;
-              float shoveY=o.shoveY;
-              float dx = rtn.x-o.pos.x;
-              float dy = rtn.y-o.pos.z;
-              if (Math.abs(dx) < shoveX &&
-                Math.abs(dy) < shoveY){// needs push
-                rr.hit=true;
-                obj.getHit(o);
+          boolean inDontHit = false;
+          if (rr.dontHit!=null)
+            for(Obj odh : rr.dontHit){
+              if (odh==o)
+                inDontHit=true;
+            }
+          if (o.solid&&!inDontHit){
+            float shoveX=o.shoveX;
+            float shoveY=o.shoveY;
+            float dx = rtn.x-o.pos.x;
+            float dy = rtn.y-o.pos.z;
+            if (Math.abs(dx) < shoveX &&
+              Math.abs(dy) < shoveY){// needs push
+              rr.hit=true;
+              obj.getHit(o);
+              if(o.testRect(obj)&&obj.testRect(o)){
                 if (Math.abs(dx)<Math.abs(dy)){
                   if (dy<0)
                     rtn.add(0,-dy-shoveY);
@@ -4827,6 +4845,7 @@ public class Icmm extends ApplicationAdapter {
         // draw walls:
         if (shouldDrawWalls)
         {
+          sp.setUniformf("u_texCoords", 0, 0, 1, 1);
           Texture stone  = ass.get("stone.png", Texture.class);
           stone.setWrap(Texture.TextureWrap.Repeat,Texture.TextureWrap.Repeat);
           Texture dirt = ass.get("dirt.png", Texture.class);
@@ -4979,6 +4998,7 @@ public class Icmm extends ApplicationAdapter {
         sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,600f,400f);
         if (!dying&&possess==null)
         {
+          sp.setUniformf("u_texCoords", 0, 0, 1, 1);
           sp.setUniformMatrix("u_projectionViewMatrix", uicam.combined);
           sp.setUniformf("u_light", uicam.position);
           {
@@ -5002,6 +5022,7 @@ public class Icmm extends ApplicationAdapter {
           }
           // healthbar
           {
+            sp.setUniformf("u_texCoords", 0, 0, 1, 1);
             float barW=.2f;
             float barH=.05f;
             {
