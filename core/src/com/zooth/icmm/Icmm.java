@@ -23,6 +23,7 @@ class Tile
   static int TUNNEL = (1<<2);
   static int PIT = (1<<3);
   static int DIRT = (1<<4);
+  static int BLOCKED = (1<<5);
   int type = OPEN;
   boolean checkType(int t){
     return ((type&t)>0);
@@ -30,7 +31,7 @@ class Tile
   Tile addType(int t){
     type |= t;
     return this;
-  }
+  }void removeType(int stt){type&=~stt;}
 }
 class Obj
 {
@@ -61,7 +62,7 @@ class Obj
   String soundLoopName="";// name of the looped sound (for removal)
   Sound loop;
   Obj(){};
-  void init(){};
+  void init(){hp=maxhp;};
   Icmm game;
   void setGame(Icmm g){this.game=g;if(ai!=null){ai.setGame(g);ai.init(this);}}
   String tex;
@@ -206,18 +207,24 @@ class Obj
       game.toInv(this);
   }
   boolean canDie;
+  boolean playDieSounds=true;
+  boolean leaveGrave=true;
   void damaged(float f, Obj hitter){
     if(canDie){
       hp-=f;
       if (hp<=0){
         dropInv();
         remove=true;
-        game.playSound("manHit", getPos());
-        Grave o = new Grave();
-        o.pos=pos.cpy();
-        game.addObj(o);
+        if(playDieSounds)
+          game.playSound("manHit", getPos());
+        if(leaveGrave){
+          Grave o = new Grave();
+          o.pos=pos.cpy();
+          game.addObj(o);
+        }
       }else{
-        game.playSound("armorHit", getPos());
+        if(playDieSounds)
+          game.playSound("armorHit", getPos());
       }
     }
   }
@@ -1359,13 +1366,17 @@ class GoopPile extends Obj
 class Goop extends Obj
 {
   Goop(){
-    radius=.25f;
+    radius=.1f;
+    maxhp=1f;
     tex="goopF.png";
     billboard=true;
     canHit=true;
+    canDie=true;
+    //addType(Obj.NOCLIP);
     ai=new PatrolAI();
-    ms=1.75f;
-    angle=90;
+    ms=1f;
+    playDieSounds=false;
+    leaveGrave=false;
   }
   Icmm.ObjTester objTesterNotDoor=new Icmm.ObjTester(this){
     boolean works(Obj o){
@@ -1381,62 +1392,41 @@ class Goop extends Obj
     super.step(dt);
     if(inWorld){
       leaveGoopC+=dt;
-      if(leaveGoopC>1f){
+      if(leaveGoopC>1f*scale){
         GoopPile gp = new GoopPile();
+        gp.radius-=((float)iter)*gp.radius/6f;
+        gp.scale=scale;
         gp.setPos(getPos());
         game.addObj(gp);
         leaveGoopC=0;
       }
     }
   }
-  /*
-  String getTex(){
-    Vector2 camp = new Vector2(game.getCurrCamPos().x, game.getCurrCamPos().z);
-    float camAng = camp.sub(getPos()).angle();
-    //float camAng = new Vector2(game.cam.direction.x, game.cam.direction.z).angle();
-    float diff = Icmm.normAngle(camAng-angle);
-    if(ai instanceof FleeAI){
-      if (diff < 45 && diff > -45){
-        if ((int)(((FleeAI)ai).checkSightCount*8)%2==0)
-          flipX=true;
+  int iter=0;
+  void damaged(float d, Obj h){
+    super.damaged(d, h);
+    if(h instanceof Exp||iter>2){
+      game.playSound("splatD", getPos());
+    }else{
+      game.playSound("splat", getPos());
+      for(int i = 0; i < 2;++i){// two new goops
+        Goop g = new Goop();
+        g.setPos(getPos());
+        if(i==0)// one goes to opposite way
+          if(ai instanceof PatrolAI){// make this one go a different way
+            PatrolAI pai = (PatrolAI)ai;
+            if(pai.path!=null)
+              ((PatrolAI)g.ai).lastPos=pai.path.get(0).getPos().cpy().add((float)Math.random(), (float)Math.random());// set last pos to our dest
+          }
         else
-          flipX=false;
-        return "goopD.png";
-      }else
-      if (diff < 135 && diff > 45){
-        flipX=false;
-        if ((int)(((FleeAI)ai).checkSightCount*8)%2==0)
-          return "ratR1.png";
-        else
-          return "ratR2.png";
-      }else
-      if (diff > -135 && diff < -45){
-        flipX=true;
-        if ((int)(((FleeAI)ai).checkSightCount*8)%2==0)
-          return "ratR1.png";
-        else
-          return "ratR2.png";
-      }else
-      if (diff > 135 || diff < -135){
-        if ((int)(((FleeAI)ai).checkSightCount*8)%2==0)
-          flipX=true;
-        else
-          flipX=false;
-        return "ratU1.png";
+          if(ai instanceof PatrolAI){
+            PatrolAI pai = (PatrolAI)ai;
+            ((PatrolAI)g.ai).lastPos=pai.lastPos.cpy().add((float)Math.random(), (float)Math.random());// same last pos
+          }
+        g.scale=scale*.8f;
+        g.iter=iter+1;
+        game.addObj(g);
       }
-    }
-    return null;
-  }*/
-  void damaged(float f, Obj by){
-    if (!dead){
-      remove=true;
-      Grave o = new Grave();
-      //o.msg="Here lies rat, son of rat";
-      o.pos=pos;
-      game.addObj(o);
-      dead=true;
-      ms=0;
-      game.playSound("ratD", getPos());
     }
   }
 }
@@ -2212,28 +2202,34 @@ class Sign extends Obj
   String msg="the sign is blank";
   void tog(Obj o){Gdx.app.log("icmm", msg);}
 }
-class LockedDoor extends Obj
+class LockedDoor extends Door
 {
+  static int NONE=0;
+  static int LOCKED=1;// use crystals instead (they're cooler)
+  static int FIRE=2;
+  void setDoorType(int t){ldoorType=t;}
+  int ldoorType=NONE;
   LockedDoor(){
     addType(Obj.UNDER);
     tall=true;
     solid=true;
     stationary=true;
-    tex="fireDoor.png";
+    tex="lockedDoor.png";
   }
-  void init(){
-    // make sure we block if we're in a row
-    if (angle!=0){
-      shoveX=.75f;
-    }else{
-      shoveY=.75f;
-    }
+  String getTex(){
+    if(type==LOCKED)
+      return "lockedDoor.png";
+    if(type==FIRE)
+      return "fireDoor.png";
+    return null;
   }
+  /*
   void tog(Obj o){
     game.playSound("door", getPos());
     solid=!solid;if(solid){offY=0;}else{offY=1.1f;}}
+  */
 }
-class CrystalDoor extends Obj
+class CrystalDoor extends Door
 {
   CrystalDoor(){
     addType(Obj.UNDER);
@@ -2242,17 +2238,13 @@ class CrystalDoor extends Obj
     stationary=true;
     tex="crystalDoor.png";
   }
-  void init(){
-    // make sure we block if we're in a row
-    if (angle!=0){
-      shoveX=.75f;
-    }else{
-      shoveY=.75f;
-    }
+  String getTex(){
+    return "crystalDoor.png";
   }
   void tog(Obj o){
-    game.playSound("door", getPos());
-    solid=!solid;if(solid){offY=0;}else{offY=1.1f;}}
+    super.tog(o);
+    if(solid){offY=0;}else{offY=1.1f;}
+  }
 }
 class MudWall extends Obj
 {
@@ -2298,9 +2290,25 @@ class Door extends Obj
     stationary=true;
     tex="doorC.png";
   }
+  void init(){
+    // make sure we block if we're in a row
+    if (angle!=0){
+      shoveX=.75f;
+    }else{
+      shoveY=.75f;
+    }
+    // set the tile we're on to blocked if we're solid
+    if(solid)
+      game.tileAtNE(getPos()).addType(Tile.BLOCKED);
+  }
   void tog(Obj o){
     game.playSound("door", getPos());
-    solid=!solid;if(solid){tex="doorC.png";}else{tex="doorO.png";}}
+    solid=!solid;if(solid){tex="doorC.png";}else{tex="doorO.png";}
+    if(solid)
+      game.tileAt(getPos()).addType(Tile.BLOCKED);
+    else
+      game.tileAt(getPos()).removeType(Tile.BLOCKED);
+  }
 }
 class AI{
   //Icmm game;void setGame(Icmm g){game=g;}
@@ -2333,7 +2341,7 @@ class PatrolAI extends AI{
       final Obj fobj=obj;
       Icmm.TileTester tt = new Icmm.TileTester(){
         boolean works(Tile t){
-          if (t!=null&&t.exists&&(t.type&~Tile.PIT)>0){
+          if (t!=null&&t.exists&&(!t.checkType(Tile.PIT))){
             Vector2 distLastPos = new Vector2();
             if(lastPos==null)
               distLastPos=t.getPos().cpy().sub(fobj.getPos()).scl(2);// scl 2 cause its the first
@@ -3184,6 +3192,8 @@ public class Icmm extends ApplicationAdapter {
     blank=Gdx.audio.newSound(Gdx.files.internal("blank.ogg"));
     //asset loading
     ass.load("ratD.ogg", Sound.class);
+    ass.load("splat.ogg", Sound.class);
+    ass.load("splatD.ogg", Sound.class);
     ass.load("tele.ogg", Sound.class);
     ass.load("electric.ogg", Sound.class);
     ass.load("earthImpact.ogg", Sound.class);
@@ -3757,6 +3767,7 @@ public class Icmm extends ApplicationAdapter {
       }
       {
         LockedDoor l1 = new LockedDoor();
+        l1.setDoorType(LockedDoor.FIRE);
         l1.setPos(6,12);
         l1.angle=90;
         addObj(l1);
@@ -3857,6 +3868,7 @@ public class Icmm extends ApplicationAdapter {
       }
       {
         LockedDoor l1 = new LockedDoor();
+        l1.setDoorType(LockedDoor.FIRE);
         l1.setPos(27,17);
         addObj(l1);
         Torch t1 = new Torch();
@@ -4161,9 +4173,46 @@ public class Icmm extends ApplicationAdapter {
         tileAt(1,y).setExists(true).addType(Tile.TUNNEL);
         tileAt(7,y).setExists(true).addType(Tile.TUNNEL);
       }
+      // getting out
+      
+      // add the goop/crystal
       {Obj o = new Goop();
         o.setPos(2,2);
         addObj(o);
+      }
+      {Obj o = new Knight();
+        o.setPos(2,8);
+        addObj(o);
+      }
+      {Obj o = new Knight();
+        o.setPos(8,2);
+        addObj(o);
+      }
+      {Obj o = new GoldKnight();
+        o.setPos(8,2);
+        Obj c = new Crystal();
+        o.toInv(c,null);
+        addObj(c);
+        addObj(o);
+      }
+      for(int x=10;x<16;++x)
+        tileAt(x,8).setExists(true).addType(Tile.TUNNEL);
+      {
+        Pedestal p = new Pedestal();
+        Reliquary r = new Reliquary();
+        r.setPos(9,9);
+        p.setPos(r.getPos());
+        CrystalDoor cd = new CrystalDoor();
+        cd.setPos(10,8);
+        r.addDoor(cd);
+        addObj(p);
+        addObj(r);
+        addObj(cd);
+      }
+      {
+        Portal p = new Portal();
+        p.setPos(12,8);
+        addObj(p);
       }
     }else
     if(level==6){
@@ -4293,6 +4342,11 @@ public class Icmm extends ApplicationAdapter {
     o.setGame(this);
     o.init();
     objs.add(o);
+  }
+  Tile tileAtNE(Vector2 pos){
+    int x = (int)Math.round(pos.x);
+    int y = (int)Math.round(pos.y);
+    return tiles[x][y];
   }
   Tile tileAt(Vector2 pos){
     int x = (int)Math.round(pos.x);
@@ -4647,7 +4701,7 @@ public class Icmm extends ApplicationAdapter {
               held.act();
             }
           }else{
-            if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)){
+            if(possess!=null&&Gdx.input.isKeyJustPressed(Input.Keys.SPACE)){
               possess.ai=new FleeAI();
               possess=null;
             }
