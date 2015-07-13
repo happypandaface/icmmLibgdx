@@ -40,6 +40,7 @@ class Obj
   static long ITEM=(1<<0);
   static long NOCLIP=(1<<1);
   static long UNDER=(1<<2);// rats can sneak under
+  static long INGOOP=(1<<3);// slowed by goop
   // item types
   static long HAND=(1<<0);
   static long WEAP=(1<<1);
@@ -162,7 +163,12 @@ class Obj
       }
     }
   }
+  boolean slowed=false;
   void oldStep(float dt){// per fram
+    slowed=false;
+    if(checkType(INGOOP))
+      slowed=true;
+    removeType(INGOOP);// to check if we're in goop again
     float effms=ms;//effective movespeed
     if(vel>0){
       vel-=dt;
@@ -276,6 +282,15 @@ class Guy extends Obj
       hp=0;
       game.die();
     }
+  }
+  void step(float dt){
+    //ms=0f;// so step doesn't move us
+    ms=0f;
+    super.step(dt);
+    if(slowed)
+      ms=.2f;
+    else
+      ms=1f;
   }
   void toInv(Obj o, Obj from){
     o.holder=this;
@@ -1323,6 +1338,108 @@ class Spider extends Obj
     }
   }
 }
+class GoopPile extends Obj
+{
+  GoopPile(){
+    billboard=true;
+    radius=.5f;
+    addType(Obj.NOCLIP);
+    tex="goopPile.png";
+  }
+  void getHit(Obj obj){
+    obj.addType(Obj.INGOOP);
+  }
+  float remC=4f;
+  void step(float dt){
+    remC-=dt;
+    if(remC<=0)
+      remove=true;
+  }
+}
+class Goop extends Obj
+{
+  Goop(){
+    radius=.25f;
+    tex="goopF.png";
+    billboard=true;
+    canHit=true;
+    ai=new PatrolAI();
+    ms=1.75f;
+    angle=90;
+  }
+  Icmm.ObjTester objTesterNotDoor=new Icmm.ObjTester(this){
+    boolean works(Obj o){
+      return (!o.checkType(Obj.UNDER)&&!user.checkType(Obj.UNDER));
+    }
+  };
+  boolean testRect(Obj o){return objTester.works(o)&&objTesterNotDoor.works(o);}
+  float changeAngCount=0;
+  float changeAngCountMax=2f;
+  float changeAngCountMin=1f;
+  float leaveGoopC=0;
+  void step(float dt){
+    super.step(dt);
+    if(inWorld){
+      leaveGoopC+=dt;
+      if(leaveGoopC>1f){
+        GoopPile gp = new GoopPile();
+        gp.setPos(getPos());
+        game.addObj(gp);
+        leaveGoopC=0;
+      }
+    }
+  }
+  /*
+  String getTex(){
+    Vector2 camp = new Vector2(game.getCurrCamPos().x, game.getCurrCamPos().z);
+    float camAng = camp.sub(getPos()).angle();
+    //float camAng = new Vector2(game.cam.direction.x, game.cam.direction.z).angle();
+    float diff = Icmm.normAngle(camAng-angle);
+    if(ai instanceof FleeAI){
+      if (diff < 45 && diff > -45){
+        if ((int)(((FleeAI)ai).checkSightCount*8)%2==0)
+          flipX=true;
+        else
+          flipX=false;
+        return "goopD.png";
+      }else
+      if (diff < 135 && diff > 45){
+        flipX=false;
+        if ((int)(((FleeAI)ai).checkSightCount*8)%2==0)
+          return "ratR1.png";
+        else
+          return "ratR2.png";
+      }else
+      if (diff > -135 && diff < -45){
+        flipX=true;
+        if ((int)(((FleeAI)ai).checkSightCount*8)%2==0)
+          return "ratR1.png";
+        else
+          return "ratR2.png";
+      }else
+      if (diff > 135 || diff < -135){
+        if ((int)(((FleeAI)ai).checkSightCount*8)%2==0)
+          flipX=true;
+        else
+          flipX=false;
+        return "ratU1.png";
+      }
+    }
+    return null;
+  }*/
+  void damaged(float f, Obj by){
+    if (!dead){
+      remove=true;
+      Grave o = new Grave();
+      //o.msg="Here lies rat, son of rat";
+      o.pos=pos;
+      game.addObj(o);
+      dead=true;
+      ms=0;
+      game.playSound("ratD", getPos());
+    }
+  }
+}
 class Rat extends Obj
 {
   Rat(){
@@ -2198,6 +2315,43 @@ class AI{
     obj=o;
   }
 }
+class PatrolAI extends AI{
+  Vector2 lastPos=null;
+  float patrolDist=7f;
+  Array<Tile> path=null;
+  void act(Obj obj, float dt){
+    if(path!=null){
+      if(path.size>2){
+        Vector2 targ = path.get(path.size-2).getPos();
+        Vector2 diff = targ.cpy().sub(obj.getPos());
+        obj.angle = diff.angle();
+        if(diff.len()<.2f)
+          path.pop();
+      }else
+        path=null;
+    }else{
+      final Obj fobj=obj;
+      Icmm.TileTester tt = new Icmm.TileTester(){
+        boolean works(Tile t){
+          if (t!=null&&t.exists&&(t.type&~Tile.PIT)>0){
+            Vector2 distLastPos = new Vector2();
+            if(lastPos==null)
+              distLastPos=t.getPos().cpy().sub(fobj.getPos()).scl(2);// scl 2 cause its the first
+            else
+              distLastPos=lastPos.cpy().sub(t.getPos());
+            if(distLastPos.len()>patrolDist*Math.sqrt(2f))
+              return true;
+          }
+          return false;
+        }
+      };
+      path=obj.game.getPath(obj.getPos(), (int)patrolDist, obj, tt);
+      if(path==null)// just to make sure it keeps moving
+        path=obj.game.getPath(obj.getPos(), (int)patrolDist*2, obj, tt);
+      lastPos=obj.getPos().cpy();
+    }
+  }
+}
 class WanderAI extends AI{
   float walkCount=0;
   float minWCount=1f;
@@ -3052,6 +3206,10 @@ public class Icmm extends ApplicationAdapter {
     ass.load("swordW.ogg", Sound.class);
     ass.load("match.ogg", Sound.class);
     ass.load("dog.png", Texture.class);
+    ass.load("goopB.png", Texture.class);
+    ass.load("goopPile.png", Texture.class);
+    ass.load("goopF.png", Texture.class);
+    ass.load("goopS.png", Texture.class);
     ass.load("purp.png", Texture.class);
     ass.load("starBurst1.png", Texture.class);
     ass.load("starBurst2.png", Texture.class);
@@ -3987,6 +4145,28 @@ public class Icmm extends ApplicationAdapter {
       }
     }else
     if(level==5){
+      // this code makes 4 rooms
+      for(int r=0;r<4;++r){
+        int xp=r%2*6;
+        int yp=r/2*6;
+        for(int x=0;x<4;++x)
+          for(int y=0;y<4;++y)
+            tileAt(x+xp,y+yp).setExists(true);
+      }
+      for(int x=4;x<6;++x){
+        tileAt(x,1).setExists(true).addType(Tile.TUNNEL);
+        tileAt(x,7).setExists(true).addType(Tile.TUNNEL);
+      }
+      for(int y=4;y<6;++y){
+        tileAt(1,y).setExists(true).addType(Tile.TUNNEL);
+        tileAt(7,y).setExists(true).addType(Tile.TUNNEL);
+      }
+      {Obj o = new Goop();
+        o.setPos(2,2);
+        addObj(o);
+      }
+    }else
+    if(level==6){
       guy.setPos(7,5);
       for(int x=5;x<9;++x)
         for(int y=5;y<9;++y)
@@ -4307,7 +4487,7 @@ public class Icmm extends ApplicationAdapter {
           float lsr = 670f;//lookspeed for reactions
           float lsp = 670f;//lookspeed add per sec
           float lsd = 870f;//lookspeed deg per sec
-          float ms = 5f;//movespeed max
+          float ms = 5f*guy.ms;//movespeed max
           float msp = 15f;//movespeed add per sec
           float msd = 15f;//movespeed add per sec
           Vector3 newPos = cam.position.cpy();
@@ -4416,19 +4596,27 @@ public class Icmm extends ApplicationAdapter {
             if(newPos != null&&possess!=null)
               possess.setPos(newPos.x,newPos.z);
           }
-          if(possess==null){
-            int keyHit=-1;
-            if (anim==null){if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_1)){keyHit=1;}
-             if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_2)){keyHit=2;}
-             if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_3)){keyHit=3;}
-             if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_4)){keyHit=4;}
-             if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_5)){keyHit=5;}
-             if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_6)){keyHit=6;}
-             if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_7)){keyHit=7;}
-             if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_8)){keyHit=8;}
-             if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_9)){keyHit=9;}
-             if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_0)){keyHit=0;}
-            }
+          // numbers (maybe inv?)
+          int keyHit=-1;
+          if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_1)){keyHit=1;}
+          if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_2)){keyHit=2;}
+          if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_3)){keyHit=3;}
+          if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_4)){keyHit=4;}
+          if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_5)){keyHit=5;}
+          if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_6)){keyHit=6;}
+          if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_7)){keyHit=7;}
+          if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_8)){keyHit=8;}
+          if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_9)){keyHit=9;}
+          if(Gdx.input.isKeyJustPressed(Input.Keys.NUM_0)){keyHit=0;}
+          if(Icmm.dev==1&&keyHit>=0&&Gdx.input.isKeyPressed(Input.Keys.ENTER)){
+            // code this later
+            //devPressed.add(addPressed);if(devPressed.size>maxCharBuf){devPressed.removeIndex(0);}
+            // go back and get nums
+            //Character.isDigit
+            level=keyHit;
+            needsReset=true;
+          }else// not a level target, switch inv now
+          if (anim==null&&possess==null){
             if(keyHit>0){//0 is awkward
               switchInvTo(keyHit);
             }
