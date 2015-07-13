@@ -275,6 +275,8 @@ class Guy extends Obj
     weight=.1f;
     canHit=true;
     radius=.3f;
+    billboard=true;
+    tex="evilWiz.png";
   }
   void damaged(float f, Obj o){
     if(o!=null)
@@ -1913,9 +1915,47 @@ class SilverKnight extends Knight{
 }
 class Dwarf extends Obj
 {
+  float dmg=1f;
   Dwarf(){
     billboard=true;
-    tex="dwarf.png";
+    tex="dwarfSheet.png";
+    texCoordsStart=new Vector2(0,0);
+    texCoordsScale=new Vector2(1f/3f,.5f);
+    ai=new FightAI();
+    radius=.35f;
+    weight=.5f;
+    canHit=true;
+    canDie=true;
+    ms=1.1f;
+  }
+  String getTex(){
+    if(ai.getAnimState()==AI.WALKING){
+      if((int)(ai.getAnimTime()*4)%2==0){
+        texCoordsStart=new Vector2(1f/3f,.5f);
+      }else{
+        texCoordsStart=new Vector2(0,.5f);
+      }
+    }
+    if(ai.getAnimState()==AI.CHARGING){
+      texCoordsStart=new Vector2(1f/3f,0f);
+    }
+    if(ai.getAnimState()==AI.ATTACKING){
+      texCoordsStart=new Vector2(2f/3f,0f);
+    }
+    return "dwarfSheet.png";
+  }
+  void fight(){
+    game.playSound("swordW", getPos());
+    angle=game.getGuyPos().cpy().sub(getPos()).angle();
+    Icmm.ObjTester iot = new Icmm.ObjTester(){
+      boolean works(Obj o){
+        return o.inWorld&&o.canHit;
+      }
+    };
+    Obj bestObj = game.getFirst(this, 90, game.diffHit, iot);
+    if (bestObj != null){
+      bestObj.damaged(dmg,this);
+    }
   }
 }
 class Knight extends Obj
@@ -2329,6 +2369,11 @@ class Door extends Obj
 }
 class AI{
   //Icmm game;void setGame(Icmm g){game=g;}
+  static int ATTACKING=1;
+  static int WALKING=2;
+  static int CHARGING=3;
+  float getAnimTime(){return 0;}
+  int getAnimState(){return 0;}
   void setGame(Icmm g){};
   Obj obj;
   void act(float dt){
@@ -2728,6 +2773,12 @@ class FightAI extends AI{
   float actTimeMax=2f;
   float actTimeHalf=.5f;
   float walkCount=0;
+  float getAnimTime(){return walkCount;}
+  int getAnimState(){
+    if(attacking&&actTime<actTimeMax*actTimeHalf){return AI.CHARGING;}
+    else if(attacking){return AI.ATTACKING;}
+    else{return AI.WALKING;}
+  }
   boolean attacking;// for animation
   void act(Obj obj, float dt){
     if (actTime < actTimeMax)
@@ -3234,6 +3285,8 @@ public class Icmm extends ApplicationAdapter {
     ass.load("swordW.ogg", Sound.class);
     ass.load("match.ogg", Sound.class);
     ass.load("dog.png", Texture.class);
+    ass.load("dwarfSheet.png", Texture.class);
+    ass.load("evilWiz.png", Texture.class);
     ass.load("goopB.png", Texture.class);
     ass.load("goopPile.png", Texture.class);
     ass.load("goopF.png", Texture.class);
@@ -4245,6 +4298,11 @@ public class Icmm extends ApplicationAdapter {
         addObj(o);
       }
       {
+        Dwarf o = new Dwarf();
+        o.setPos(6, 14);
+        addObj(o);
+      }
+      {
         Wiz o = new Wiz();
         o.setPos(6, 7);
         //addObj(o);
@@ -4829,6 +4887,7 @@ public class Icmm extends ApplicationAdapter {
           sp.setUniformf("u_brightness", 10*(1-(deathTimer/5f)));
           //sp.setUniformf("u_light", currCam.position.cpy().add(0,-1*deathTimer*2f,0));
         boolean shouldDrawWalls=true;
+        boolean shouldDrawGuy=false;
         boolean shouldDrawObjs=true;
         if (j==1){
           if (Icmm.dev==0){
@@ -4839,6 +4898,7 @@ public class Icmm extends ApplicationAdapter {
           }
           if(possess!=null){
             shouldDrawWalls=true;
+            shouldDrawGuy=true;
             shouldDrawObjs=true;
           }
         }
@@ -4963,23 +5023,39 @@ public class Icmm extends ApplicationAdapter {
           Vector2 thisp = getCurrCamPos2();
           for (int i = 0; i < objs.size; ++i){
             Obj o = objs.get(i);
-            o.renderDist = o.getPos().cpy().sub(thisp).len();
-            if (orderedObjs.size==0)
-              orderedObjs.add(o);
-            else
-              for (int c = 0; c < orderedObjs.size; ++c){
-                if (o.renderDist > orderedObjs.get(c).renderDist){
-                  // items always are infront of chests
-                  //if(!(orderedObjs.get(c) instanceof Chest&&o.checkType(Obj.ITEM)))
-                  orderedObjs.insert(c,o);
-                  break;
-                }else
-                if (c==orderedObjs.size-1){
-                  orderedObjs.add(o);
+            if(o!=guy||shouldDrawGuy){// only draw the guy if we're supposed to
+              o.renderDist = o.getPos().cpy().sub(thisp).len();
+              if (orderedObjs.size==0)
+                orderedObjs.add(o);
+              else
+                for (int c = 0; c < orderedObjs.size; ++c){
+                  if (o.renderDist > orderedObjs.get(c).renderDist){
+                    // items always are infront of chests
+                    //if(!(orderedObjs.get(c) instanceof Chest&&o.checkType(Obj.ITEM)))
+                    orderedObjs.insert(c,o);
+                    break;
+                  }else
+                  if (c==orderedObjs.size-1){
+                    orderedObjs.add(o);
+                    break;
+                  }
+                }
+            }
+          }/* leave this for any extra junk?
+          if(shouldDrawGuy){
+            float renderDist = guy.getPos().cpy().sub(thisp).len();
+            for (int i = 0; i <= orderedObjs.size; ++i){
+              if(i==orderedObjs.size){
+                orderedObjs.add(guy);
+              }else{
+                Obj o = objs.get(i);
+                if(renderDist > o.renderDist){
+                  orderedObjs.insert(i,guy);
                   break;
                 }
               }
-          }
+            }
+          }*/
           for (int i = 0; i < orderedObjs.size; ++i){
             Obj o = orderedObjs.get(i);
             if (Icmm.dev==1&&j==1){
