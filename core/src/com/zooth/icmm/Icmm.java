@@ -2274,9 +2274,9 @@ class LockedDoor extends Door
     tex="lockedDoor.png";
   }
   String getTex(){
-    if(type==LOCKED)
+    if(ldoorType==LOCKED)
       return "lockedDoor.png";
-    if(type==FIRE)
+    if(ldoorType==FIRE)
       return "fireDoor.png";
     return null;
   }
