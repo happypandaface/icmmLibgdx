@@ -9,6 +9,7 @@ import com.badlogic.gdx.graphics.g2d.*;
 import com.badlogic.gdx.graphics.g3d.*;
 import com.badlogic.gdx.graphics.glutils.*;
 import com.badlogic.gdx.audio.*;
+import java.util.Random;
 
 class Tile
 {
@@ -37,6 +38,7 @@ class Obj
 {
   // statuses
   static long PSN=(1<<0);
+  static long STUN=(1<<1);
   // types
   static long ITEM=(1<<0);
   static long NOCLIP=(1<<1);
@@ -52,6 +54,7 @@ class Obj
   long type;boolean checkType(long stt){return (type&stt)>0;};void addType(long stt){type|=stt;}void removeType(long stt){type&=~stt;}
   long itemType=0;boolean checkItemType(long stt){return (itemType&stt)>0;};void addItemType(long stt){itemType|=stt;}void removeItemType(long stt){itemType&=~stt;}
   float psnTime=0;float psnTimeC=0;
+  float stunTime=0;float stunTimeC=0;
   float renderDist;// used for render ordering
   boolean remove;// if true, will be removed this step
   boolean flipX;// whether or not to flip the tex
@@ -158,6 +161,8 @@ class Obj
   Icmm.TileTester customTileTester=null;
   float psnThresh=0f;//min health psn will leave you at (0 is no min);
   void step(float dt){if(inWorld){if(ai!=null){ai.act(this,dt);}oldStep(dt);}
+    if (checkStatus(STUN))
+      stunTimeC+=dt;stunTime-=dt;if(stunTime<=0){removeStatus(STUN);}
     if (checkStatus(PSN)){
       psnTimeC+=dt;psnTime-=dt;if(psnTime<=0){removeStatus(PSN);}
       if(hp>psnThresh){
@@ -174,6 +179,8 @@ class Obj
     slowed=false;
     if(checkType(INGOOP))
       slowed=true;
+    if(checkType(STUN)&&stunTime<.5f)
+      slowed=true;
     removeType(INGOOP);// to check if we're in goop again
     float effms=ms;//effective movespeed
     if(vel>0){
@@ -184,6 +191,12 @@ class Obj
     }
     if (!canMove)
       effms=0;
+    if (checkStatus(STUN)){
+      if(psnTime<.5f)
+        effms*=.2f;
+      else
+        effms=0;
+    }
     if (effms>0){
       Vector2 dir = new Vector2(1,0).rotate(angle);
       dir.scl(dt*effms);
@@ -192,8 +205,9 @@ class Obj
         rr.tt=customTileTester;
       rr.dontHit=dontHit;
       Vector3 pos2=game.rectify(pos.cpy().add(dir.x, 0, dir.y),this,rr);
-      if (pos2!=null)
+      if (pos2!=null&&this!=game.possess){// make sure we're not the possessed target
         pos.set(pos2);
+      }
     }
   }
   void act(){// called when invoked
@@ -214,6 +228,12 @@ class Obj
   boolean canDie;
   boolean playDieSounds=true;
   boolean leaveGrave=true;
+  static int DMG_PHYS=1;
+  static int DMG_STUN=2;
+  static int DMG_FIRE=3;
+  void damaged(float f, Obj hitter, long hitType){
+    damaged(f,hitter);
+  }
   void damaged(float f, Obj hitter){
     if(canDie){
       hp-=f;
@@ -278,6 +298,15 @@ class Guy extends Obj
     billboard=true;
     tex="evilWiz.png";
   }
+  void damaged(float f, Obj o, long type){
+    if(type==Obj.DMG_STUN){
+      stunTime=1.1f;
+      if (!checkStatus(Obj.STUN))// for animation
+        stunTimeC=0;
+      addStatus(Obj.STUN);
+    }
+    damaged(f,o);
+  }
   void damaged(float f, Obj o){
     if(o!=null)
       game.tweenAng(o.getPos().cpy().sub(getPos()).angle());
@@ -298,13 +327,15 @@ class Guy extends Obj
     }
   }
   void step(float dt){
-    //ms=0f;// so step doesn't move us
-    ms=0f;
+    ms=0f;// so step doesn't move us
     super.step(dt);
     if(slowed)
       ms=.2f;
     else
-      ms=1f;
+      if(checkStatus(Obj.STUN)){
+        ms=0f;
+      }else
+        ms=1f;
   }
   void toInv(Obj o, Obj from){
     o.holder=this;
@@ -483,7 +514,6 @@ class Purp extends Obj
       remove=true;
       if(o instanceof Rat){
         o.ai=null;
-        o.ms=1.75f;
         game.possess=o;
       }
     }
@@ -1450,7 +1480,7 @@ class Rat extends Obj
     billboard=true;
     canHit=true;
     ai=new FleeAI();
-    ms=1.75f;
+    ms=1f;
     angle=90;
   }
   Icmm.ObjTester objTesterNotDoor=new Icmm.ObjTester(this){
@@ -1628,7 +1658,7 @@ class Worm extends Obj
     weight=2f;
     tex="wormUp.png";
     billboard=true;
-    hp=3f;
+    maxhp=2f;
     ai=new WormAI();
     ms=.3f;
     customTileTester= new Icmm.TileTester(){
@@ -1915,13 +1945,14 @@ class SilverKnight extends Knight{
 }
 class Dwarf extends Obj
 {
-  float dmg=1f;
+  float dmg=1.5f;
   Dwarf(){
+    maxhp=3f;
     billboard=true;
     tex="dwarfSheet.png";
     texCoordsStart=new Vector2(0,0);
     texCoordsScale=new Vector2(1f/3f,.5f);
-    ai=new FightAI();
+    ai=new NormAI();
     radius=.35f;
     weight=.5f;
     canHit=true;
@@ -1945,11 +1976,17 @@ class Dwarf extends Obj
     return "dwarfSheet.png";
   }
   void fight(){
+    Array<Obj> hit = game.getRadiusAll(3.5f,getPos());
+    for(int i = 0; i<hit.size;++i){
+      Obj o = hit.get(i);
+      if(!(o instanceof Dwarf))
+        o.damaged(.1f,this,Obj.STUN);
+    }
     game.playSound("swordW", getPos());
     angle=game.getGuyPos().cpy().sub(getPos()).angle();
     Icmm.ObjTester iot = new Icmm.ObjTester(){
       boolean works(Obj o){
-        return o.inWorld&&o.canHit;
+        return !(o instanceof Dwarf)&&o.inWorld&&o.canHit;
       }
     };
     Obj bestObj = game.getFirst(this, 90, game.diffHit, iot);
@@ -2280,11 +2317,10 @@ class LockedDoor extends Door
       return "fireDoor.png";
     return null;
   }
-  /*
   void tog(Obj o){
-    game.playSound("door", getPos());
-    solid=!solid;if(solid){offY=0;}else{offY=1.1f;}}
-  */
+    super.tog(o);
+    if(solid){offY=0;}else{offY=1.1f;}
+  }
 }
 class CrystalDoor extends Door
 {
@@ -2533,6 +2569,12 @@ class NormAI extends AI{
   float walkCount=0;
   float mustSeekTime=.75f;
   float mustSeekCount=0;
+  float getAnimTime(){return actTime;}
+  int getAnimState(){
+    if(state==FIGHT&&actTime<hitTime){return AI.CHARGING;}
+    else if(state==FIGHT){return AI.ATTACKING;}
+    else{return AI.WALKING;}
+  }
   void act(Obj obj, float dt){
     // for attacking later
     boolean setup=false;
@@ -4293,7 +4335,7 @@ public class Icmm extends ApplicationAdapter {
           tileAt(x,y).setExists(true);
       {
         Book o = new Book();
-        o.setPos(6, 13);
+        o.setPos(7,6);
         o.setBookType(Book.FB);
         addObj(o);
       }
@@ -4326,13 +4368,40 @@ public class Icmm extends ApplicationAdapter {
       {
         Book o = new Book();
         o.bookType=Book.POSSESS;
-        o.setPos(5, 18);
+        o.setPos(6, 13);
         addObj(o);
       }
       {
         Rat o = new Rat();
         o.setPos(5, 18);
         addObj(o);
+      }
+      for(int x=10;x<14;++x)
+        tileAt(x,13).setExists(true).addType(Tile.TUNNEL);
+      for(int x=2;x<6;++x)
+        tileAt(x,13).setExists(true).addType(Tile.TUNNEL);
+      {Obj o = new Door();o.setPos(5,13);addObj(o);}
+      {Obj o = new Door();o.setPos(10,13);addObj(o);}
+      {Obj o = new Door();o.setPos(2,13);addObj(o);}
+      {Obj o = new Door();o.setPos(13,13);addObj(o);}
+      for(int x=0;x<2;++x)
+        for(int y=12;y<15;++y)
+          tileAt(x,y).setExists(true);
+      for(int x=14;x<16;++x)
+        for(int y=12;y<15;++y)
+          tileAt(x,y).setExists(true);
+      int pos=(Math.random()<.5f?1:0);
+      for(int y=12;y<15;++y){
+        int x=(pos==1?1:14);
+        Dwarf d = new Dwarf();
+        d.setPos(x,y);
+        addObj(d);
+      }
+      {
+        int x=(pos==1?15:0);
+        Portal p = new Portal();
+        p.setPos(x,13);
+        addObj(p);
       }
       {
         Obj[] os=new Obj[]{new GoldKnight(), new Wiz(), new Goblin(), new Dog()};
@@ -4613,10 +4682,10 @@ public class Icmm extends ApplicationAdapter {
         guy.angle=held.angle=new Vector2(cam.direction.x,cam.direction.z).angle();
         //held.angle=guy.getDir().angle();
         if (!dying){
-          float ls = 170f;//lookspeed max
+          float ls = 240f;//lookspeed max
           float lsr = 670f;//lookspeed for reactions
-          float lsp = 670f;//lookspeed add per sec
-          float lsd = 870f;//lookspeed deg per sec
+          float lsp = 770f;//lookspeed add per sec
+          float lsd = 1270f;//lookspeed deg per sec
           float ms = 5f*guy.ms;//movespeed max
           float msp = 15f;//movespeed add per sec
           float msd = 15f;//movespeed add per sec
@@ -4686,8 +4755,10 @@ public class Icmm extends ApplicationAdapter {
             }
             if(possess!=null)
               possess.angle-=dt*lsm;
-            else
+            else{
+              guy.angle+=dt*lsm;
               cam.rotate(Vector3.Y, dt*lsm);
+            }
           }
           if (Gdx.input.isKeyPressed(Input.Keys.I)){
             if (msm<0)
@@ -4720,9 +4791,10 @@ public class Icmm extends ApplicationAdapter {
             cam.position.set(newPos);
           }else{
             newPos = rectify(newPos,possess==null?guy:possess);
-            if (newPos != null&&possess==null)
+            if (newPos != null&&possess==null){
+              //guy.setPos(newPos.x,newPos.z);
               cam.position.set(newPos);
-            else
+            }else
             if(newPos != null&&possess!=null)
               possess.setPos(newPos.x,newPos.z);
           }
@@ -4773,7 +4845,7 @@ public class Icmm extends ApplicationAdapter {
               if (!(held instanceof Hand))
                 held.drop();
             }
-            if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)&&anim==null){
+            if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)&&anim==null&&!guy.checkStatus(Obj.STUN)){
               held.act();
             }
           }else{
@@ -5077,17 +5149,22 @@ public class Icmm extends ApplicationAdapter {
           sp.setUniformf("u_texCoords", 0, 0, 1, 1);
           sp.setUniformMatrix("u_projectionViewMatrix", uicam.combined);
           sp.setUniformf("u_light", uicam.position);
+          // held
+          sp.setUniformf("u_color", 1f,1f,1f,1f);
           {
             Matrix4 mat = new Matrix4();
+            mat.translate(0, 0, .01f);
             sp.setUniformMatrix("u_objectMatrix", mat);
             ass.get(held.getSel(), Texture.class).bind();
             uiitem.render(sp, GL20.GL_TRIANGLES);
           }
+          // extra held graphic
+          sp.setUniformf("u_color", 1f,1f,1f,1f);
           {
             String sel2=held.getSel2();
             if(sel2!=null){
               Matrix4 mat = new Matrix4();
-              mat.translate(-.25f, -.25f, 0);
+              mat.translate(-.25f, -.25f, .01f);
               mat.scl(.5f,.5f,1);
               if(held.flipSel2X)
                 mat.scl(-1,1,1);
@@ -5096,6 +5173,33 @@ public class Icmm extends ApplicationAdapter {
               fullui.render(sp, GL20.GL_TRIANGLES);
             }
           }
+          // stun bursts
+          if(guy.checkStatus(Obj.STUN)){
+            float burstTime=.5f;
+            for(int i = 0; i < 2;++i){
+              String sbt="starBurst1.png";
+              float effStunTime=guy.stunTimeC+(i==1?burstTime/2f:0);
+              while(effStunTime>burstTime)
+                effStunTime-=burstTime;
+              long seed2=(long)((totTime-effStunTime)*100000);
+              Random r2=new Random(seed2);
+              if(effStunTime>burstTime/3f)
+                sbt="starBurst2.png";
+              if(effStunTime>burstTime*2f/3f)
+                sbt="starBurst3.png";
+              Matrix4 mat = new Matrix4();
+              float x = (r2.nextFloat()-.5f)*2f;
+              float y = (r2.nextFloat()-.5f)*2f;
+              mat.translate(x*.4f, y*.4f, .011f+.001f*(float)i);
+              mat.scl(.5f,.5f,1);
+              //if(held.flipSel2X)
+              //  mat.scl(-1,1,1);
+              sp.setUniformMatrix("u_objectMatrix", mat);
+              ass.get(sbt, Texture.class).bind();
+              fullui.render(sp, GL20.GL_TRIANGLES);
+            }
+          }
+          sp.setUniformf("u_color", 1f,1f,1f,1f);
           // healthbar
           {
             sp.setUniformf("u_texCoords", 0, 0, 1, 1);
@@ -5104,7 +5208,7 @@ public class Icmm extends ApplicationAdapter {
             {
               sp.setUniformf("u_color", 1,1,1,1);
               Matrix4 mat = new Matrix4();
-              mat.translate(.5f-barW/2f+barW/2f*(1-guy.getHP()), .5f-barH/2f, 0);
+              mat.translate(.5f-barW/2f+barW/2f*(1-guy.getHP()), .5f-barH/2f, .02f);
               mat.scl(barW*guy.getHP(), barH, 1);
               sp.setUniformMatrix("u_objectMatrix", mat);
               red.bind();
@@ -5113,7 +5217,7 @@ public class Icmm extends ApplicationAdapter {
             {
               sp.setUniformf("u_color", .3f,.3f,.3f,1f);
               Matrix4 mat = new Matrix4();
-              mat.translate(.5f-barW/2f, .5f-barH/2f, 0);
+              mat.translate(.5f-barW/2f, .5f-barH/2f, .02f);
               mat.scl(barW, barH, 1);
               sp.setUniformMatrix("u_objectMatrix", mat);
               red.bind();
