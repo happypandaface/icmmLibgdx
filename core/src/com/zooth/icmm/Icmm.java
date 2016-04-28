@@ -1044,6 +1044,9 @@ class Book extends Obj
     if(bookType==FB){
       return "bookFB.png";
     }else
+    if(bookType==POSSESS){
+      return "bookPB.png";
+    }else
     return "bookE.png";
   }
   String getSel(){
@@ -3340,6 +3343,9 @@ public class Icmm extends ApplicationAdapter {
     ass.load("goblin.png", Texture.class);
     ass.load("goblinF.png", Texture.class);
     ass.load("bookFBH2.png", Texture.class);
+    ass.load("bookPH.png", Texture.class);
+    ass.load("bookPH2.png", Texture.class);
+    ass.load("bookPB.png", Texture.class);
     ass.load("zap.png", Texture.class);
     ass.load("bookFB.png", Texture.class);
     ass.load("bookFBH.png", Texture.class);
