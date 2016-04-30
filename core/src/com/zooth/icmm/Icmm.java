@@ -2338,8 +2338,10 @@ class CrystalDoor extends Door
     return "crystalDoor.png";
   }
   void tog(Obj o){
-    super.tog(o);
-    if(solid){offY=0;}else{offY=1.1f;}
+    if(!(o instanceof Hand)){
+      super.tog(o);
+      if(solid){offY=0;}else{offY=1.1f;}
+    }
   }
 }
 class MudWall extends Obj
@@ -3288,6 +3290,8 @@ public class Icmm extends ApplicationAdapter {
   int endx = 100;
   int srty = 0;
   int endy = 100;
+  Music introMusic;
+  float introMusicMaxVol=.4f;
 	
   float tgh=1.5f;// tunnel gap height
 	@Override
@@ -3304,6 +3308,14 @@ public class Icmm extends ApplicationAdapter {
     }
     blank=Gdx.audio.newSound(Gdx.files.internal("blank.ogg"));
     //asset loading
+    //ass.load("introMusic.ogg", Sound.class);
+    introMusic=Gdx.audio.newMusic(Gdx.files.internal("introMusic.ogg"));
+    introMusic.play();
+    introMusic.setLooping(true);
+    introMusic.setVolume(introMusicMaxVol);
+    ass.load("intro1.png", Texture.class);
+    ass.load("intro2.png", Texture.class);
+    ass.load("intro3.png", Texture.class);
     ass.load("ratD.ogg", Sound.class);
     ass.load("spider.ogg", Sound.class);
     ass.load("splat.ogg", Sound.class);
@@ -3461,7 +3473,8 @@ public class Icmm extends ApplicationAdapter {
     ass.load("lionSF.png", Texture.class);
     ass.load("lionS.png", Texture.class);
     ass.load("lionB.png", Texture.class);
-    reset();
+    init();
+    //reset();
   }
   void removeObjs(){
     for (int i = objs.size-1; i >= 0; --i){
@@ -3483,21 +3496,10 @@ public class Icmm extends ApplicationAdapter {
     }
   }
   int level=0;
-  void reset(){
-    possess=null;
-    tiles=new Tile[endx][endy];
-    for (int x=srtx;x<endx;++x)
-      for (int y=srty;y<endy;++y)
-        tiles[x][y] = new Tile().setPos(x,y);
-    swiveling=false;
-    forceRemoveObjs();
-    Gdx.app.log("icmm", "reset");
-    anim=null;
-    dying=false;
-    winning=false;
-    deathTimer=0;
-    objs = new Array<Obj>();
-    inv = new Array<Obj>();
+  void init(){
+    ShaderProgram.pedantic = true;
+    sp = new ShaderProgram(Gdx.files.internal("vert.glsl"), Gdx.files.internal("frag.glsl"));
+    Gdx.app.log("icmm", "shader log:"+sp.getLog());
     uicam = new OrthographicCamera(1,1);
     uicam.near = .01f;
     uicam.position.set(0,0,1);
@@ -3513,9 +3515,6 @@ public class Icmm extends ApplicationAdapter {
     cam2.position.set(0,.75f,0);
     cam2.direction.set(0,0,1);
     cam2.update();
-    ShaderProgram.pedantic = true;
-    sp = new ShaderProgram(Gdx.files.internal("vert.glsl"), Gdx.files.internal("frag.glsl"));
-    Gdx.app.log("icmm", "shader log:"+sp.getLog());
     float wh=10;// Wall height
     tunnelWall = new Mesh(true, 4, 6,
       new VertexAttribute(VertexAttributes.Usage.Position, 3, "a_position"),
@@ -3677,6 +3676,23 @@ public class Icmm extends ApplicationAdapter {
         3,1,0
       });
     }
+  }
+  void reset(){
+    init();
+    possess=null;
+    tiles=new Tile[endx][endy];
+    for (int x=srtx;x<endx;++x)
+      for (int y=srty;y<endy;++y)
+        tiles[x][y] = new Tile().setPos(x,y);
+    swiveling=false;
+    forceRemoveObjs();
+    Gdx.app.log("icmm", "reset");
+    anim=null;
+    dying=false;
+    winning=false;
+    deathTimer=0;
+    objs = new Array<Obj>();
+    inv = new Array<Obj>();
     guy=new Guy();
     addObj(guy);
     held=new Hand();
@@ -4673,12 +4689,16 @@ public class Icmm extends ApplicationAdapter {
   float vizShrinkTime=0;// for global vizshrink functs
   Obj possess=null;
   Obj lastPossess=null;
-  int tutorial=1;
+  int tutorial=0;
+  int intro=1;
+  int introDirection=1;
+  float introTimer=-1;
   float tutTimer=0;
   boolean tutI,tutJ,tutK,tutL,tutE,tutQ,tutSPACE;
 	@Override
 	public void render () {
     float dt = Gdx.graphics.getDeltaTime();
+    dt=dt<.1f?dt:.1f;
     totTime+=dt;
     // logic
     boolean needsReset=false;
@@ -4689,6 +4709,55 @@ public class Icmm extends ApplicationAdapter {
     // make sure it's loaded first
     if (ass.update()||true)
     {
+      if (intro>0){
+        float nextTimer=introTimer+dt*(Icmm.dev==1?7f:1.4f);
+        boolean justBefore0=introTimer<0&&nextTimer>=0;
+        if(Gdx.input.isKeyJustPressed(Input.Keys.Q)){
+          introDirection=-1;
+          justBefore0=false;
+        }else
+        if(Gdx.input.isKeyJustPressed(Input.Keys.E)){
+          introDirection=1;
+          justBefore0=false;
+        }
+        if (!justBefore0){
+          introTimer=nextTimer;
+        }
+        // fade music
+        if(introTimer>0f&&intro==3&&introDirection==1){
+          introMusic.setVolume(introMusicMaxVol*(1-introTimer));
+        }
+        if(introTimer>1f){
+          introTimer=-1f;
+          if(intro==3&&introDirection==1){
+            intro=0;
+            introMusic.stop();
+            tutorial=1;
+            reset();
+          }else{
+            intro+=introDirection;
+          }
+        }
+      }
+      // check for dev code
+      Character addPressed=' ';
+      if (Gdx.input.isKeyJustPressed(Input.Keys.Z)){addPressed='Z';}
+      if (Gdx.input.isKeyJustPressed(Input.Keys.V)){addPressed='V';}
+      if (Gdx.input.isKeyJustPressed(Input.Keys.C)){addPressed='C';}
+      if (Gdx.input.isKeyJustPressed(Input.Keys.X)){addPressed='X';}
+      int maxCharBuf=9;if (addPressed!=' '){
+        devPressed.add(addPressed);if(devPressed.size>maxCharBuf){devPressed.removeIndex(0);}
+        String devStr="ZCXV";
+        if(devPressed.size>=devStr.length()){
+          String testDev="";
+          for(int i=0;i<devStr.length();++i){
+            testDev+=devPressed.get(devPressed.size-devStr.length()+i);}
+          if(testDev.equals(devStr)){
+            if(Icmm.dev==0){Icmm.dev=1;Gdx.app.log("icmm","dev mode on");}else{
+            Icmm.dev=0;Gdx.app.log("icmm","dev mode off");}}
+        }
+      }
+      if (guy!=null)
       { // controls
         if(possess!=null&&possess.remove)
           possess=null;
@@ -4730,24 +4799,6 @@ public class Icmm extends ApplicationAdapter {
           if (tutorial==3&&tutSPACE){
             tutTimer=0;
             tutorial=0;
-          }
-          // check for dev code
-          Character addPressed=' ';
-          if (Gdx.input.isKeyJustPressed(Input.Keys.Z)){addPressed='Z';}
-          if (Gdx.input.isKeyJustPressed(Input.Keys.V)){addPressed='V';}
-          if (Gdx.input.isKeyJustPressed(Input.Keys.C)){addPressed='C';}
-          if (Gdx.input.isKeyJustPressed(Input.Keys.X)){addPressed='X';}
-          int maxCharBuf=9;if (addPressed!=' '){
-            devPressed.add(addPressed);if(devPressed.size>maxCharBuf){devPressed.removeIndex(0);}
-            String devStr="ZCXV";
-            if(devPressed.size>=devStr.length()){
-              String testDev="";
-              for(int i=0;i<devStr.length();++i){
-                testDev+=devPressed.get(devPressed.size-devStr.length()+i);}
-              if(testDev.equals(devStr)){
-                if(Icmm.dev==0){Icmm.dev=1;Gdx.app.log("icmm","dev mode on");}else{
-                Icmm.dev=0;Gdx.app.log("icmm","dev mode off");}}
-            }
           }
           if (swiveling){
             Vector2 flatDir=new Vector2(cam.direction.x,cam.direction.z);
@@ -4932,7 +4983,7 @@ public class Icmm extends ApplicationAdapter {
           vizShrinkTime=0;
         }
       }
-      if(guy.checkStatus(Obj.PSN)){
+      if(guy!=null&&guy.checkStatus(Obj.PSN)){
         if (guy.psnTimeC<1.0f){
           vizShrinkTime=1-(float)Math.cos(guy.psnTimeC*Math.PI/2f);
         }else
@@ -4957,307 +5008,311 @@ public class Icmm extends ApplicationAdapter {
       // code for visions:
       sp.setUniformf("u_color", 1,1,1,1);
       // for circ:
-      float circR=(w>h?w:h);
-      float outerCirc=(float)Math.sqrt(2);
-      float innerCirc=-.1f+(float)Math.sqrt(2);
-      float shrink=(float)Math.sqrt(2)-.5f;
-      for(int j = 0; j < 2; ++j){
-        if (j==0){
-          sp.setUniformMatrix("u_projectionViewMatrix", cam.combined);
-          if (!guy.checkStatus(Obj.PSN)){
-            sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,w*outerCirc,w*innerCirc);
-          }else{
-            sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,w*(outerCirc-shrink*vizShrinkTime),w*(innerCirc-shrink*vizShrinkTime));
-          }
-          setColor(sp,guy);
-          currCam = cam;
-        }else{
-          if(possess!=null){
-            cam2.position.set(possess.pos).add(0,guyHeight,0);
-            Vector2 diff = possess.getDir();
-            cam2.direction.set(diff.x,0,diff.y);
-            cam2.update();
-            sp.setUniformMatrix("u_projectionViewMatrix", cam2.combined);
-            sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,w*.35f,w*.3f);
-            sp.setUniformf("u_color", 1,1,1,1f);
-            currCam = cam2;
-          }else{
+      if(guy!=null){
+        float circR=(w>h?w:h);
+        float outerCirc=(float)Math.sqrt(2);
+        float innerCirc=-.1f+(float)Math.sqrt(2);
+        float shrink=(float)Math.sqrt(2)-.5f;
+        for(int j = 0; j < 2; ++j){
+          if (j==0){
             sp.setUniformMatrix("u_projectionViewMatrix", cam.combined);
-            sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,w*.5f,w*.4f);
-            sp.setUniformf("u_color", 1,1,1,.5f);
+            if (!guy.checkStatus(Obj.PSN)){
+              sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,w*outerCirc,w*innerCirc);
+            }else{
+              sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,w*(outerCirc-shrink*vizShrinkTime),w*(innerCirc-shrink*vizShrinkTime));
+            }
+            setColor(sp,guy);
             currCam = cam;
-          }
-        }
-        Gdx.gl.glClear(GL20.GL_DEPTH_BUFFER_BIT);
-        sp.setUniformf("u_brightness", 10.0f);
-        sp.setUniformf("u_light", currCam.position.cpy().add(0,0,0));
-        if (dying&&!winning)
-          sp.setUniformf("u_brightness", 10*(1-(deathTimer/5f)));
-          //sp.setUniformf("u_light", currCam.position.cpy().add(0,-1*deathTimer*2f,0));
-        boolean shouldDrawWalls=true;
-        boolean shouldDrawGuy=false;
-        boolean shouldDrawObjs=true;
-        if (j==1){
-          if (Icmm.dev==0){
-            shouldDrawWalls=false;
-            shouldDrawObjs=false;
           }else{
-            shouldDrawWalls=false;
+            if(possess!=null){
+              cam2.position.set(possess.pos).add(0,guyHeight,0);
+              Vector2 diff = possess.getDir();
+              cam2.direction.set(diff.x,0,diff.y);
+              cam2.update();
+              sp.setUniformMatrix("u_projectionViewMatrix", cam2.combined);
+              sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,w*.35f,w*.3f);
+              sp.setUniformf("u_color", 1,1,1,1f);
+              currCam = cam2;
+            }else{
+              sp.setUniformMatrix("u_projectionViewMatrix", cam.combined);
+              sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,w*.5f,w*.4f);
+              sp.setUniformf("u_color", 1,1,1,.5f);
+              currCam = cam;
+            }
           }
-          if(possess!=null){
-            shouldDrawWalls=true;
-            shouldDrawGuy=true;
-            shouldDrawObjs=true;
+          Gdx.gl.glClear(GL20.GL_DEPTH_BUFFER_BIT);
+          sp.setUniformf("u_brightness", 10.0f);
+          sp.setUniformf("u_light", currCam.position.cpy().add(0,0,0));
+          if (dying&&!winning)
+            sp.setUniformf("u_brightness", 10*(1-(deathTimer/5f)));
+            //sp.setUniformf("u_light", currCam.position.cpy().add(0,-1*deathTimer*2f,0));
+          boolean shouldDrawWalls=true;
+          boolean shouldDrawGuy=false;
+          boolean shouldDrawObjs=true;
+          if (j==1){
+            if (Icmm.dev==0){
+              shouldDrawWalls=false;
+              shouldDrawObjs=false;
+            }else{
+              shouldDrawWalls=false;
+            }
+            if(possess!=null){
+              shouldDrawWalls=true;
+              shouldDrawGuy=true;
+              shouldDrawObjs=true;
+            }
           }
-        }
-        // draw walls:
-        if (shouldDrawWalls)
-        {
-          sp.setUniformf("u_texCoords", 0, 0, 1, 1);
-          Texture stone  = ass.get("stone.png", Texture.class);
-          stone.setWrap(Texture.TextureWrap.Repeat,Texture.TextureWrap.Repeat);
-          Texture dirt = ass.get("dirt.png", Texture.class);
-          dirt.setWrap(Texture.TextureWrap.Repeat,Texture.TextureWrap.Repeat);
-          for (int x = srtx; x < endx; ++x){
-            for (int y = srty; y < endy; ++y){
-              if (tileExists(x,y)){
-                if (tileAt(x,y).checkType(Tile.DIRT)){
-                  dirt.bind();
-                }else{
-                  //default color
-                  stone.bind();
-                }
-                if ((tileAt(x,y).type&~Tile.PIT)>0)
-                {
-                  Matrix4 mat = new Matrix4();
-                  mat.setTranslation(x,0,y);
-                  sp.setUniformMatrix("u_objectMatrix", mat);
-                  floor.render(sp, GL20.GL_TRIANGLES);
-                }
-                if ((tileAt(x,y).type&Tile.TUNNEL)>0)
-                {
-                  Matrix4 mat = new Matrix4();
-                  mat.setTranslation(x,tgh,y);
-                  sp.setUniformMatrix("u_objectMatrix", mat);
-                  floor.render(sp, GL20.GL_TRIANGLES);
-                }
-                if (!tileExists(x-1,y)){
-                  Matrix4 mat = new Matrix4();
-                  mat.setTranslation(x,0,y);
-                  sp.setUniformMatrix("u_objectMatrix", mat);
-                  wall.render(sp, GL20.GL_TRIANGLES);
-                }else{
-                  Tile t = tileAt(x-1,y);
-                  if ((t.type&(~Tile.OPEN))>0){
+          // draw walls:
+          if (shouldDrawWalls)
+          {
+            sp.setUniformf("u_texCoords", 0, 0, 1, 1);
+            Texture stone  = ass.get("stone.png", Texture.class);
+            stone.setWrap(Texture.TextureWrap.Repeat,Texture.TextureWrap.Repeat);
+            Texture dirt = ass.get("dirt.png", Texture.class);
+            dirt.setWrap(Texture.TextureWrap.Repeat,Texture.TextureWrap.Repeat);
+            for (int x = srtx; x < endx; ++x){
+              for (int y = srty; y < endy; ++y){
+                if (tileExists(x,y)){
+                  if (tileAt(x,y).checkType(Tile.DIRT)){
+                    dirt.bind();
+                  }else{
+                    //default color
+                    stone.bind();
+                  }
+                  if ((tileAt(x,y).type&~Tile.PIT)>0)
+                  {
                     Matrix4 mat = new Matrix4();
                     mat.setTranslation(x,0,y);
                     sp.setUniformMatrix("u_objectMatrix", mat);
-                    if ((t.type&Tile.PIT)>0)
-                      pitWall.render(sp, GL20.GL_TRIANGLES);
-                    else
-                    if ((t.type&Tile.TUNNEL)>0)
-                      tunnelWall.render(sp, GL20.GL_TRIANGLES);
+                    floor.render(sp, GL20.GL_TRIANGLES);
                   }
-                }
-                if (!tileExists(x+1,y)){
-                  Matrix4 mat = new Matrix4();
-                  mat.translate(x,0,y);
-                  mat.rotate(Vector3.Y, 180);
-                  sp.setUniformMatrix("u_objectMatrix", mat);
-                  wall.render(sp, GL20.GL_TRIANGLES);
-                }else{
-                  Tile t = tileAt(x+1,y);
-                  if ((t.type&(~Tile.OPEN))>0){
+                  if ((tileAt(x,y).type&Tile.TUNNEL)>0)
+                  {
+                    Matrix4 mat = new Matrix4();
+                    mat.setTranslation(x,tgh,y);
+                    sp.setUniformMatrix("u_objectMatrix", mat);
+                    floor.render(sp, GL20.GL_TRIANGLES);
+                  }
+                  if (!tileExists(x-1,y)){
+                    Matrix4 mat = new Matrix4();
+                    mat.setTranslation(x,0,y);
+                    sp.setUniformMatrix("u_objectMatrix", mat);
+                    wall.render(sp, GL20.GL_TRIANGLES);
+                  }else{
+                    Tile t = tileAt(x-1,y);
+                    if ((t.type&(~Tile.OPEN))>0){
+                      Matrix4 mat = new Matrix4();
+                      mat.setTranslation(x,0,y);
+                      sp.setUniformMatrix("u_objectMatrix", mat);
+                      if ((t.type&Tile.PIT)>0)
+                        pitWall.render(sp, GL20.GL_TRIANGLES);
+                      else
+                      if ((t.type&Tile.TUNNEL)>0)
+                        tunnelWall.render(sp, GL20.GL_TRIANGLES);
+                    }
+                  }
+                  if (!tileExists(x+1,y)){
                     Matrix4 mat = new Matrix4();
                     mat.translate(x,0,y);
                     mat.rotate(Vector3.Y, 180);
                     sp.setUniformMatrix("u_objectMatrix", mat);
-                    if ((t.type&Tile.PIT)>0)
-                      pitWall.render(sp, GL20.GL_TRIANGLES);
-                    else
-                    if ((t.type&Tile.TUNNEL)>0)
-                      tunnelWall.render(sp, GL20.GL_TRIANGLES);
+                    wall.render(sp, GL20.GL_TRIANGLES);
+                  }else{
+                    Tile t = tileAt(x+1,y);
+                    if ((t.type&(~Tile.OPEN))>0){
+                      Matrix4 mat = new Matrix4();
+                      mat.translate(x,0,y);
+                      mat.rotate(Vector3.Y, 180);
+                      sp.setUniformMatrix("u_objectMatrix", mat);
+                      if ((t.type&Tile.PIT)>0)
+                        pitWall.render(sp, GL20.GL_TRIANGLES);
+                      else
+                      if ((t.type&Tile.TUNNEL)>0)
+                        tunnelWall.render(sp, GL20.GL_TRIANGLES);
+                    }
                   }
-                }
-                if (!tileExists(x,y-1)){
-                  Matrix4 mat = new Matrix4();
-                  mat.translate(x,0,y);
-                  mat.rotate(Vector3.Y, -90);
-                  sp.setUniformMatrix("u_objectMatrix", mat);
-                  wall.render(sp, GL20.GL_TRIANGLES);
-                }else{
-                  Tile t = tileAt(x,y-1);
-                  if ((t.type&~Tile.OPEN)>0){
+                  if (!tileExists(x,y-1)){
                     Matrix4 mat = new Matrix4();
                     mat.translate(x,0,y);
                     mat.rotate(Vector3.Y, -90);
                     sp.setUniformMatrix("u_objectMatrix", mat);
-                    if ((t.type&Tile.PIT)>0)
-                      pitWall.render(sp, GL20.GL_TRIANGLES);
-                    else
-                    if ((t.type&Tile.TUNNEL)>0)
-                      tunnelWall.render(sp, GL20.GL_TRIANGLES);
+                    wall.render(sp, GL20.GL_TRIANGLES);
+                  }else{
+                    Tile t = tileAt(x,y-1);
+                    if ((t.type&~Tile.OPEN)>0){
+                      Matrix4 mat = new Matrix4();
+                      mat.translate(x,0,y);
+                      mat.rotate(Vector3.Y, -90);
+                      sp.setUniformMatrix("u_objectMatrix", mat);
+                      if ((t.type&Tile.PIT)>0)
+                        pitWall.render(sp, GL20.GL_TRIANGLES);
+                      else
+                      if ((t.type&Tile.TUNNEL)>0)
+                        tunnelWall.render(sp, GL20.GL_TRIANGLES);
+                    }
                   }
-                }
-                if (!tileExists(x,y+1)){
-                  Matrix4 mat = new Matrix4();
-                  mat.translate(x,0,y);
-                  mat.rotate(Vector3.Y, 90);
-                  sp.setUniformMatrix("u_objectMatrix", mat);
-                  wall.render(sp, GL20.GL_TRIANGLES);
-                }else{
-                  Tile t = tileAt(x,y+1);
-                  if ((t.type&~Tile.OPEN)>0){
+                  if (!tileExists(x,y+1)){
                     Matrix4 mat = new Matrix4();
                     mat.translate(x,0,y);
                     mat.rotate(Vector3.Y, 90);
                     sp.setUniformMatrix("u_objectMatrix", mat);
-                    if ((t.type&Tile.PIT)>0)
-                      pitWall.render(sp, GL20.GL_TRIANGLES);
-                    else
-                    if ((t.type&Tile.TUNNEL)>0)
-                      tunnelWall.render(sp, GL20.GL_TRIANGLES);
+                    wall.render(sp, GL20.GL_TRIANGLES);
+                  }else{
+                    Tile t = tileAt(x,y+1);
+                    if ((t.type&~Tile.OPEN)>0){
+                      Matrix4 mat = new Matrix4();
+                      mat.translate(x,0,y);
+                      mat.rotate(Vector3.Y, 90);
+                      sp.setUniformMatrix("u_objectMatrix", mat);
+                      if ((t.type&Tile.PIT)>0)
+                        pitWall.render(sp, GL20.GL_TRIANGLES);
+                      else
+                      if ((t.type&Tile.TUNNEL)>0)
+                        tunnelWall.render(sp, GL20.GL_TRIANGLES);
+                    }
                   }
                 }
               }
             }
           }
-        }
-        // draw stuff
-        if (shouldDrawObjs)
-        {
-          // order objs
-          Array<Obj> orderedObjs = new Array<Obj>();
-          Vector2 thisp = getCurrCamPos2();
-          for (int i = 0; i < objs.size; ++i){
-            Obj o = objs.get(i);
-            if(o!=guy||shouldDrawGuy){// only draw the guy if we're supposed to
-              o.renderDist = o.getPos().cpy().sub(thisp).len();
-              if (orderedObjs.size==0)
-                orderedObjs.add(o);
-              else
-                for (int c = 0; c < orderedObjs.size; ++c){
-                  if (o.renderDist > orderedObjs.get(c).renderDist){
-                    // items always are infront of chests
-                    //if(!(orderedObjs.get(c) instanceof Chest&&o.checkType(Obj.ITEM)))
-                    orderedObjs.insert(c,o);
-                    break;
-                  }else
-                  if (c==orderedObjs.size-1){
-                    orderedObjs.add(o);
+          // draw stuff
+          if (shouldDrawObjs)
+          {
+            // order objs
+            Array<Obj> orderedObjs = new Array<Obj>();
+            Vector2 thisp = getCurrCamPos2();
+            for (int i = 0; i < objs.size; ++i){
+              Obj o = objs.get(i);
+              if(o!=guy||shouldDrawGuy){// only draw the guy if we're supposed to
+                o.renderDist = o.getPos().cpy().sub(thisp).len();
+                if (orderedObjs.size==0)
+                  orderedObjs.add(o);
+                else
+                  for (int c = 0; c < orderedObjs.size; ++c){
+                    if (o.renderDist > orderedObjs.get(c).renderDist){
+                      // items always are infront of chests
+                      //if(!(orderedObjs.get(c) instanceof Chest&&o.checkType(Obj.ITEM)))
+                      orderedObjs.insert(c,o);
+                      break;
+                    }else
+                    if (c==orderedObjs.size-1){
+                      orderedObjs.add(o);
+                      break;
+                    }
+                  }
+              }
+            }/* leave this for any extra junk?
+            if(shouldDrawGuy){
+              float renderDist = guy.getPos().cpy().sub(thisp).len();
+              for (int i = 0; i <= orderedObjs.size; ++i){
+                if(i==orderedObjs.size){
+                  orderedObjs.add(guy);
+                }else{
+                  Obj o = objs.get(i);
+                  if(renderDist > o.renderDist){
+                    orderedObjs.insert(i,guy);
                     break;
                   }
                 }
-            }
-          }/* leave this for any extra junk?
-          if(shouldDrawGuy){
-            float renderDist = guy.getPos().cpy().sub(thisp).len();
-            for (int i = 0; i <= orderedObjs.size; ++i){
-              if(i==orderedObjs.size){
-                orderedObjs.add(guy);
-              }else{
-                Obj o = objs.get(i);
-                if(renderDist > o.renderDist){
-                  orderedObjs.insert(i,guy);
-                  break;
-                }
               }
+            }*/
+            for (int i = 0; i < orderedObjs.size; ++i){
+              Obj o = orderedObjs.get(i);
+              if (Icmm.dev==1&&j==1){
+                o = orderedObjs.get(orderedObjs.size-i-1);
+                Gdx.gl.glClear(GL20.GL_DEPTH_BUFFER_BIT);
+              }
+              setColor(sp,guy);
+              o.draw(sp);
             }
-          }*/
-          for (int i = 0; i < orderedObjs.size; ++i){
-            Obj o = orderedObjs.get(i);
-            if (Icmm.dev==1&&j==1){
-              o = orderedObjs.get(orderedObjs.size-i-1);
-              Gdx.gl.glClear(GL20.GL_DEPTH_BUFFER_BIT);
-            }
-            setColor(sp,guy);
-            o.draw(sp);
           }
         }
       }
       // draw ui
       {
         Gdx.gl.glClear(GL20.GL_DEPTH_BUFFER_BIT);
-        setColor(sp,guy);
-        sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,600f,400f);
-        if (!dying&&possess==null)
-        {
-          sp.setUniformf("u_texCoords", 0, 0, 1, 1);
-          sp.setUniformMatrix("u_projectionViewMatrix", uicam.combined);
-          sp.setUniformf("u_light", uicam.position);
-          // held
-          sp.setUniformf("u_color", 1f,1f,1f,1f);
-          {
-            Matrix4 mat = new Matrix4();
-            mat.translate(0, 0, .01f);
-            sp.setUniformMatrix("u_objectMatrix", mat);
-            ass.get(held.getSel(), Texture.class).bind();
-            uiitem.render(sp, GL20.GL_TRIANGLES);
-          }
-          // extra held graphic
-          sp.setUniformf("u_color", 1f,1f,1f,1f);
-          {
-            String sel2=held.getSel2();
-            if(sel2!=null){
-              Matrix4 mat = new Matrix4();
-              mat.translate(-.25f, -.25f, .01f);
-              mat.scl(.5f,.5f,1);
-              if(held.flipSel2X)
-                mat.scl(-1,1,1);
-              sp.setUniformMatrix("u_objectMatrix", mat);
-              ass.get(sel2, Texture.class).bind();
-              fullui.render(sp, GL20.GL_TRIANGLES);
-            }
-          }
-          // stun bursts
-          if(guy.checkStatus(Obj.STUN)){
-            float burstTime=.5f;
-            for(int i = 0; i < 2;++i){
-              String sbt="starBurst1.png";
-              float effStunTime=guy.stunTimeC+(i==1?burstTime/2f:0);
-              while(effStunTime>burstTime)
-                effStunTime-=burstTime;
-              long seed2=(long)((totTime-effStunTime)*100000);
-              Random r2=new Random(seed2);
-              if(effStunTime>burstTime/3f)
-                sbt="starBurst2.png";
-              if(effStunTime>burstTime*2f/3f)
-                sbt="starBurst3.png";
-              Matrix4 mat = new Matrix4();
-              float x = (r2.nextFloat()-.5f)*2f;
-              float y = (r2.nextFloat()-.5f)*2f;
-              mat.translate(x*.4f, y*.4f, .011f+.001f*(float)i);
-              mat.scl(.5f,.5f,1);
-              //if(held.flipSel2X)
-              //  mat.scl(-1,1,1);
-              sp.setUniformMatrix("u_objectMatrix", mat);
-              ass.get(sbt, Texture.class).bind();
-              fullui.render(sp, GL20.GL_TRIANGLES);
-            }
-          }
-          sp.setUniformf("u_color", 1f,1f,1f,1f);
-          // healthbar
+        if(guy!=null){
+          setColor(sp,guy);
+          sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,600f,400f);
+          if (!dying&&possess==null)
           {
             sp.setUniformf("u_texCoords", 0, 0, 1, 1);
-            float barW=.2f;
-            float barH=.05f;
+            sp.setUniformMatrix("u_projectionViewMatrix", uicam.combined);
+            sp.setUniformf("u_light", uicam.position);
+            // held
+            sp.setUniformf("u_color", 1f,1f,1f,1f);
             {
-              sp.setUniformf("u_color", 1,1,1,1);
               Matrix4 mat = new Matrix4();
-              mat.translate(.5f-barW/2f+barW/2f*(1-guy.getHP()), .5f-barH/2f, .02f);
-              mat.scl(barW*guy.getHP(), barH, 1);
+              mat.translate(0, 0, .01f);
               sp.setUniformMatrix("u_objectMatrix", mat);
-              red.bind();
-              fullui.render(sp, GL20.GL_TRIANGLES);
+              ass.get(held.getSel(), Texture.class).bind();
+              uiitem.render(sp, GL20.GL_TRIANGLES);
             }
+            // extra held graphic
+            sp.setUniformf("u_color", 1f,1f,1f,1f);
             {
-              sp.setUniformf("u_color", .3f,.3f,.3f,1f);
-              Matrix4 mat = new Matrix4();
-              mat.translate(.5f-barW/2f, .5f-barH/2f, .02f);
-              mat.scl(barW, barH, 1);
-              sp.setUniformMatrix("u_objectMatrix", mat);
-              red.bind();
-              fullui.render(sp, GL20.GL_TRIANGLES);
+              String sel2=held.getSel2();
+              if(sel2!=null){
+                Matrix4 mat = new Matrix4();
+                mat.translate(-.25f, -.25f, .01f);
+                mat.scl(.5f,.5f,1);
+                if(held.flipSel2X)
+                  mat.scl(-1,1,1);
+                sp.setUniformMatrix("u_objectMatrix", mat);
+                ass.get(sel2, Texture.class).bind();
+                fullui.render(sp, GL20.GL_TRIANGLES);
+              }
+            }
+            // stun bursts
+            if(guy.checkStatus(Obj.STUN)){
+              float burstTime=.5f;
+              for(int i = 0; i < 2;++i){
+                String sbt="starBurst1.png";
+                float effStunTime=guy.stunTimeC+(i==1?burstTime/2f:0);
+                while(effStunTime>burstTime)
+                  effStunTime-=burstTime;
+                long seed2=(long)((totTime-effStunTime)*100000);
+                Random r2=new Random(seed2);
+                if(effStunTime>burstTime/3f)
+                  sbt="starBurst2.png";
+                if(effStunTime>burstTime*2f/3f)
+                  sbt="starBurst3.png";
+                Matrix4 mat = new Matrix4();
+                float x = (r2.nextFloat()-.5f)*2f;
+                float y = (r2.nextFloat()-.5f)*2f;
+                mat.translate(x*.4f, y*.4f, .011f+.001f*(float)i);
+                mat.scl(.5f,.5f,1);
+                //if(held.flipSel2X)
+                //  mat.scl(-1,1,1);
+                sp.setUniformMatrix("u_objectMatrix", mat);
+                ass.get(sbt, Texture.class).bind();
+                fullui.render(sp, GL20.GL_TRIANGLES);
+              }
+            }
+            sp.setUniformf("u_color", 1f,1f,1f,1f);
+            // healthbar
+            {
+              sp.setUniformf("u_texCoords", 0, 0, 1, 1);
+              float barW=.2f;
+              float barH=.05f;
+              {
+                sp.setUniformf("u_color", 1,1,1,1);
+                Matrix4 mat = new Matrix4();
+                mat.translate(.5f-barW/2f+barW/2f*(1-guy.getHP()), .5f-barH/2f, .02f);
+                mat.scl(barW*guy.getHP(), barH, 1);
+                sp.setUniformMatrix("u_objectMatrix", mat);
+                red.bind();
+                fullui.render(sp, GL20.GL_TRIANGLES);
+              }
+              {
+                sp.setUniformf("u_color", .3f,.3f,.3f,1f);
+                Matrix4 mat = new Matrix4();
+                mat.translate(.5f-barW/2f, .5f-barH/2f, .02f);
+                mat.scl(barW, barH, 1);
+                sp.setUniformMatrix("u_objectMatrix", mat);
+                red.bind();
+                fullui.render(sp, GL20.GL_TRIANGLES);
+              }
             }
           }
           // tutorial
@@ -5294,6 +5349,46 @@ public class Icmm extends ApplicationAdapter {
               }
             }
           }
+        }
+        // intro
+        if (intro>0)
+        {
+          // this took a while to get right:
+          Gdx.gl.glClear(GL20.GL_DEPTH_BUFFER_BIT);
+          sp.setUniformf("u_circ", (float)Gdx.graphics.getWidth()/2f,(float)Gdx.graphics.getHeight()/2f,600f,400f);
+          sp.setUniformf("u_light", uicam.position);
+          sp.setUniformf("u_brightness", .03f+6*(1-(float)Math.abs(introTimer)));
+          sp.setUniformMatrix("u_projectionViewMatrix", uicam.combined);
+          // because I forgot all the glsl stuff I wrote
+          sp.setUniformf("u_texCoords", 0, 0, 1, 1);
+          {
+            sp.setUniformf("u_color", 1,1,1,1);
+            Matrix4 mat = new Matrix4();
+            mat.translate(0, 0, .02f);
+            mat.scl(1f, 1f, 1);
+            sp.setUniformMatrix("u_objectMatrix", mat);
+            if(intro==1){
+              ass.get("intro1.png",Texture.class).bind();
+            }else
+            if(intro==2){
+              ass.get("intro2.png",Texture.class).bind();
+            }else
+            if(intro==3){
+              ass.get("intro3.png",Texture.class).bind();
+            }
+            fullui.render(sp, GL20.GL_TRIANGLES);
+          }
+          /* blending wasn't working?
+          {
+            sp.setUniformf("u_color", 0,0,0,(float)Math.abs(introTimer));
+            Matrix4 mat = new Matrix4();
+            mat.translate(0, 0, .02f);
+            mat.scl(1f, 1f, 1);
+            sp.setUniformMatrix("u_objectMatrix", mat);
+            white.bind();
+            fullui.render(sp, GL20.GL_TRIANGLES);
+          }
+          */
         }
       }
       sp.end();
