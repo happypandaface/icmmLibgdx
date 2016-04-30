@@ -2182,10 +2182,11 @@ class Necro extends Obj
 {
   Necro(){
     radius=.40f;
-    ms=2.5f;
+    ms=2f;
     tex="necro1.png";
     billboard=true;
     canHit=true;
+    maxhp=2f;
     //FindAI fai = new FindAI();
     FleeFindAI ffai = new FleeFindAI();
     ffai.fiai.actTimeMax=.5f;
@@ -2205,9 +2206,32 @@ class Necro extends Obj
       if(diff.len()<3){
         final Obj away = game.guy;
         Icmm.TileTester tt = new Icmm.TileTester(){
-          boolean works(Tile t){return (t!=null&&t.exists&&(t.type&~Tile.PIT)>0)&&away.getPos().cpy().sub(t.getPos()).len()>6;}
+          boolean works(Tile t){
+            Obj sol=null;
+            for (int i=0;i<game.objs.size;++i){
+              Obj o=game.objs.get(i);
+              Tile curT=game.tileAt(o.getPos());
+              if (curT==t&&o.solid){
+                sol=o;
+                break;
+              }
+            }
+            return (sol==null&&t!=null&&t.exists&&(t.type&~Tile.PIT)>0)&&away.getPos().cpy().sub(t.getPos()).len()>6;}
         };
-        Array<Tile> tiles = game.getPath(getPos(), 10, this, tt);
+        Icmm.TileTester tt2 = new Icmm.TileTester(){
+          boolean works(Tile t){
+            Obj sol=null;
+            for (int i=0;i<game.objs.size;++i){
+              Obj o=game.objs.get(i);
+              Tile curT=game.tileAt(o.getPos());
+              if (curT==t&&o.solid){
+                sol=o;
+                break;
+              }
+            }
+            return (t!=null&&t.exists&&(t.type&~Tile.PIT)>0);}
+        };
+        Array<Tile> tiles = game.getPath(getPos(), 10, this, tt, tt2);
         teleCoolDown=.4f;// dont wanna tile check all the time
         if(tiles!=null)
         {
@@ -2236,12 +2260,14 @@ class Necro extends Obj
     }
   }
   void damaged(float f, Obj hitter){
-    dropInv();
-    remove=true;
-    game.playSound("manHit", getPos());
-    Grave o = new Grave();
-    o.pos=pos.cpy();
-    game.addObj(o);
+    if((hp=hp-f)<=0){
+      dropInv();
+      remove=true;
+      game.playSound("manHit", getPos());
+      Grave o = new Grave();
+      o.pos=pos.cpy();
+      game.addObj(o);
+    }
   }
 }
 class Witch extends Obj
@@ -2982,16 +3008,19 @@ public class Icmm extends ApplicationAdapter {
     int depth;
   }
   Array<Tile> getPath(Vector2 pos, int dist, Obj obj, TileTester tt){
+    return getPath(pos, dist, obj, tt, null);
+  }
+  Array<Tile> getPath(Vector2 pos, int dist, Obj obj, TileTester tt, TileTester tt2){
     Array<TileDepth> stack = new Array<TileDepth>();
     Array<TileDepth> done= new Array<TileDepth>();
     Tile t= null;
-    Array<Tile> rtn= getPath(pos, dist, 0, obj, tt, stack, done);
+    Array<Tile> rtn= getPath(pos, dist, 0, obj, tt, tt2, stack, done);
     if(rtn!=null&&rtn.size>1){
       rtn.removeIndex(rtn.size-1);// otherwise it looks weird
     }
     return rtn;
   }
-  Array<Tile> getPath(Vector2 pos, int dist, int depth, Obj obj, TileTester tt, Array<TileDepth> stack, Array<TileDepth> done){
+  Array<Tile> getPath(Vector2 pos, int dist, int depth, Obj obj, TileTester tt, TileTester tt2, Array<TileDepth> stack, Array<TileDepth> done){
     if (dist<depth){
       return null;// too long
     }
@@ -3052,6 +3081,8 @@ public class Icmm extends ApplicationAdapter {
                 works=false;
               }
             }
+            if (tt2!=null&&!tt2.works(sAdd))
+              works=false;
             if(works)
             {
               if (sAdd!=null){
@@ -3065,7 +3096,7 @@ public class Icmm extends ApplicationAdapter {
     while(stack.size>0){// should only loop through for one
       TileDepth curT = stack.get(0);// get first
       stack.removeIndex(0);
-      Array<Tile> rtnts = getPath(curT.tile.getPos(), dist, curT.depth, obj, tt, stack, done);
+      Array<Tile> rtnts = getPath(curT.tile.getPos(), dist, curT.depth, obj, tt, tt2, stack, done);
       if (rtnts!=null)
       {
         return rtnts;
