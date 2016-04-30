@@ -967,6 +967,33 @@ class ExpBarrel extends Obj
     }
   }
 }
+class BombHolder extends Obj
+{
+  BombHolder(){
+    radius=0;//.2f;
+    //solid=true;
+    tex="bomb1.png";
+    billboard=true;
+    scale=.5f;
+    canTog=true;
+    offY=0;//.25f;
+  }
+  void tog(Obj o){
+    if (inWorld){
+      Bomb b=new Bomb();
+      game.addObj(b);
+      b.tog(o);
+      b.bh=this;
+      hasBomb=false;
+      tex="bombHolder.png";
+    }
+  }
+  boolean hasBomb=true;
+  void resetBomb(Bomb b){
+    hasBomb=true;
+    tex="bomb1.png";
+  }
+}
 class Bomb extends Obj
 {
   Bomb(){
@@ -979,6 +1006,7 @@ class Bomb extends Obj
     canTog=true;
     offY=0;//.25f;
   }
+  BombHolder bh;
   float expCount;
   void step(float dt){
     super.step(dt);
@@ -993,6 +1021,8 @@ class Bomb extends Obj
       expCount-=dt;
       if (expCount<=0){
         remove=true;
+        if(bh!=null)
+          bh.resetBomb(this);
         {
           Exp exp = new Exp();
           exp.setPos(getPos());
@@ -2158,6 +2188,7 @@ class Necro extends Obj
     canHit=true;
     //FindAI fai = new FindAI();
     FleeFindAI ffai = new FleeFindAI();
+    ffai.fiai.actTimeMax=.5f;
     ffai.fiai.iot=new Icmm.ObjTester(){
       boolean works(Obj o){
         return (o instanceof Grave);
@@ -2165,8 +2196,32 @@ class Necro extends Obj
     };
     ai=ffai;
   }
+  float teleCoolDown=0;
   void step(float dt){
     super.step(dt);
+    teleCoolDown-=dt;
+    if(teleCoolDown<=0){
+      Vector2 diff=game.guy.getPos().cpy().sub(getPos());
+      if(diff.len()<3){
+        final Obj away = game.guy;
+        Icmm.TileTester tt = new Icmm.TileTester(){
+          boolean works(Tile t){return (t!=null&&t.exists&&(t.type&~Tile.PIT)>0)&&away.getPos().cpy().sub(t.getPos()).len()>6;}
+        };
+        Array<Tile> tiles = game.getPath(getPos(), 10, this, tt);
+        teleCoolDown=.4f;// dont wanna tile check all the time
+        if(tiles!=null)
+        {
+          teleCoolDown=1.75f;
+          {
+            game.playSound("tele", getPos(), .5f);
+            StarBurst o = new StarBurst();
+            o.pos=pos.cpy();
+            game.addObj(o);
+          }
+          setPos(tiles.get(0).getPos());
+        }
+      }
+    }
   }
   void fight(){
     Array<Obj> hit = game.getRadiusAll(2f,getPos());
@@ -3309,7 +3364,7 @@ public class Icmm extends ApplicationAdapter {
     blank=Gdx.audio.newSound(Gdx.files.internal("blank.ogg"));
     //asset loading
     //ass.load("introMusic.ogg", Sound.class);
-    introMusic=Gdx.audio.newMusic(Gdx.files.internal("introMusic.ogg"));
+    introMusic=Gdx.audio.newMusic(Gdx.files.internal("adiabloclone.ogg"));
     introMusic.play();
     introMusic.setLooping(true);
     introMusic.setVolume(introMusicMaxVol);
@@ -3384,6 +3439,7 @@ public class Icmm extends ApplicationAdapter {
     ass.load("expBarrel.png", Texture.class);
     ass.load("expBarrel2.png", Texture.class);
     ass.load("bomb1.png", Texture.class);
+    ass.load("bombHolder.png", Texture.class);
     ass.load("bomb2.png", Texture.class);
     ass.load("bombH1.png", Texture.class);
     ass.load("bombH2.png", Texture.class);
@@ -4036,7 +4092,7 @@ public class Icmm extends ApplicationAdapter {
         for (int y = 0; y < 4; ++y)
           tileAt(x,y).setExists(true);
       {
-        Obj o = new Bomb();
+        Obj o = new BombHolder();
         o.setPos(2,2);
         addObj(o);
       }
@@ -4712,7 +4768,7 @@ public class Icmm extends ApplicationAdapter {
       if (intro>0){
         float nextTimer=introTimer+dt*(Icmm.dev==1?7f:1.4f);
         boolean justBefore0=introTimer<0&&nextTimer>=0;
-        if(Gdx.input.isKeyJustPressed(Input.Keys.Q)){
+        if(intro>1&&Gdx.input.isKeyJustPressed(Input.Keys.Q)){
           introDirection=-1;
           justBefore0=false;
         }else
@@ -4780,13 +4836,16 @@ public class Icmm extends ApplicationAdapter {
             lookDir=new Vector3(possess.getDir().x,0,possess.getDir().y).nor();
           }
           // check for tutorial completion
-          if (Gdx.input.isKeyJustPressed(Input.Keys.I)){if(tutorial==1&&tutTimer>2.5f){tutI=true;}}
-          if (Gdx.input.isKeyJustPressed(Input.Keys.J)){if(tutorial==1&&tutTimer>2.5f){tutJ=true;}}
-          if (Gdx.input.isKeyJustPressed(Input.Keys.K)){if(tutorial==1&&tutTimer>2.5f){tutK=true;}}
-          if (Gdx.input.isKeyJustPressed(Input.Keys.L)){if(tutorial==1&&tutTimer>2.5f){tutL=true;}}
-          if (Gdx.input.isKeyJustPressed(Input.Keys.E)){if(tutorial==2&&tutTimer>2.5f){tutE=true;}}
-          if (Gdx.input.isKeyJustPressed(Input.Keys.Q)){if(tutorial==2&&tutTimer>2.5f){tutQ=true;}}
-          if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)){if(tutorial==3&&tutTimer>2.5f){tutSPACE=true;}}
+          float tutTimeWait=Icmm.dev==1?0:2.5f;
+          if(Icmm.dev==1)
+            tutorial=0;
+          if (Gdx.input.isKeyJustPressed(Input.Keys.I)){if(tutorial==1&&tutTimer>tutTimeWait){tutI=true;}}
+          if (Gdx.input.isKeyJustPressed(Input.Keys.J)){if(tutorial==1&&tutTimer>tutTimeWait){tutJ=true;}}
+          if (Gdx.input.isKeyJustPressed(Input.Keys.K)){if(tutorial==1&&tutTimer>tutTimeWait){tutK=true;}}
+          if (Gdx.input.isKeyJustPressed(Input.Keys.L)){if(tutorial==1&&tutTimer>tutTimeWait){tutL=true;}}
+          if (Gdx.input.isKeyJustPressed(Input.Keys.E)){if(tutorial==2&&tutTimer>tutTimeWait){tutE=true;}}
+          if (Gdx.input.isKeyJustPressed(Input.Keys.Q)){if(tutorial==2&&tutTimer>tutTimeWait){tutQ=true;}}
+          if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)){if(tutorial==3&&tutTimer>tutTimeWait){tutSPACE=true;}}
           // increment the tutorial accordingly
           if (tutorial==1&&tutI&&tutJ&&tutK&&tutL){
             tutTimer=0;
