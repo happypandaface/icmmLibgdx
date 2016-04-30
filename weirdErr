@@ -1,0 +1,31 @@
+          tutKeysPressed is an ArrayMap and tutorial is an int
+          if (tutorial==1&&(tutKeysPressed.get('I')+tutKeysPressed.get('J')+tutKeysPressed.get('K')+tutKeysPressed.get('L')==4))
+            tutorial++;
+
+
+Exception in thread "LWJGL Application" java.lang.NullPointerException
+        at com.zooth.icmm.Icmm.render(Icmm.java:4714)
+        at com.badlogic.gdx.backends.lwjgl.LwjglApplication.mainLoop(LwjglApplication.java:215)
+        at com.badlogic.gdx.backends.lwjgl.LwjglApplication$1.run(LwjglApplication.java:120)
+#
+# A fatal error has been detected by the Java Runtime Environment:
+#
+#  SIGSEGV (0xb) at pc=0x00007ff3547f1180, pid=5835, tid=140682557400832
+#
+# JRE version: OpenJDK Runtime Environment (7.0_91-b02) (build 1.7.0_91-b02)
+# Java VM: OpenJDK 64-Bit Server VM (24.91-b01 mixed mode linux-amd64 compressed oops)
+# Derivative: IcedTea 2.6.3
+# Distribution: Debian GNU/Linux unstable (sid), package 7u91-2.6.3-1
+# Problematic frame:
+# C  0x00007ff3547f1180
+#
+# Failed to write core dump. Core dumps have been disabled. To enable core dumping, try "ulimit -c unlimited" before starting Java again
+#
+# An error report file with more information is saved as:
+# /home/chobe/checkout/icmmLibgdx/android/assets/hs_err_pid5835.log
+#
+# If you would like to submit a bug report, please include
+# instructions on how to reproduce the bug and visit:
+#   http://icedtea.classpath.org/bugzilla
+#
+

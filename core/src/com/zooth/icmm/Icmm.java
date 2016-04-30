@@ -3198,7 +3198,7 @@ public class Icmm extends ApplicationAdapter {
     }
   }
   void playSound(String s, Vector2 pos){
-    playSound(s, pos, 1.0f);
+    playSound(s, pos, .4f);
   }
   void playSound(String s, Vector2 pos, float v){
     Vector2 diff = getGuyPos().cpy().sub(pos);
@@ -3329,6 +3329,12 @@ public class Icmm extends ApplicationAdapter {
     ass.load("fireW.ogg", Sound.class);
     ass.load("swordW.ogg", Sound.class);
     ass.load("match.ogg", Sound.class);
+    ass.load("moveTut1.png", Texture.class);
+    ass.load("moveTut2.png", Texture.class);
+    ass.load("switchTut1.png", Texture.class);
+    ass.load("switchTut2.png", Texture.class);
+    ass.load("spaceTut1.png", Texture.class);
+    ass.load("spaceTut2.png", Texture.class);
     ass.load("dog.png", Texture.class);
     ass.load("dwarfSheet.png", Texture.class);
     ass.load("evilWiz.png", Texture.class);
@@ -4667,6 +4673,9 @@ public class Icmm extends ApplicationAdapter {
   float vizShrinkTime=0;// for global vizshrink functs
   Obj possess=null;
   Obj lastPossess=null;
+  int tutorial=1;
+  float tutTimer=0;
+  boolean tutI,tutJ,tutK,tutL,tutE,tutQ,tutSPACE;
 	@Override
 	public void render () {
     float dt = Gdx.graphics.getDeltaTime();
@@ -4700,6 +4709,27 @@ public class Icmm extends ApplicationAdapter {
           if(possess!=null){
             newPos=possess.pos.cpy();
             lookDir=new Vector3(possess.getDir().x,0,possess.getDir().y).nor();
+          }
+          // check for tutorial completion
+          if (Gdx.input.isKeyJustPressed(Input.Keys.I)){if(tutorial==1&&tutTimer>2.5f){tutI=true;}}
+          if (Gdx.input.isKeyJustPressed(Input.Keys.J)){if(tutorial==1&&tutTimer>2.5f){tutJ=true;}}
+          if (Gdx.input.isKeyJustPressed(Input.Keys.K)){if(tutorial==1&&tutTimer>2.5f){tutK=true;}}
+          if (Gdx.input.isKeyJustPressed(Input.Keys.L)){if(tutorial==1&&tutTimer>2.5f){tutL=true;}}
+          if (Gdx.input.isKeyJustPressed(Input.Keys.E)){if(tutorial==2&&tutTimer>2.5f){tutE=true;}}
+          if (Gdx.input.isKeyJustPressed(Input.Keys.Q)){if(tutorial==2&&tutTimer>2.5f){tutQ=true;}}
+          if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)){if(tutorial==3&&tutTimer>2.5f){tutSPACE=true;}}
+          // increment the tutorial accordingly
+          if (tutorial==1&&tutI&&tutJ&&tutK&&tutL){
+            tutTimer=0;
+            tutorial++;
+          }
+          if (tutorial==2&&tutE&&tutQ){
+            tutTimer=0;
+            tutorial++;
+          }
+          if (tutorial==3&&tutSPACE){
+            tutTimer=0;
+            tutorial=0;
           }
           // check for dev code
           Character addPressed=' ';
@@ -5228,6 +5258,40 @@ public class Icmm extends ApplicationAdapter {
               sp.setUniformMatrix("u_objectMatrix", mat);
               red.bind();
               fullui.render(sp, GL20.GL_TRIANGLES);
+            }
+          }
+          // tutorial
+          if (tutorial>0)
+          {
+            tutTimer+=dt;
+            if (tutTimer>2){
+              sp.setUniformf("u_texCoords", 0, 0, 1, 1);
+              {
+                sp.setUniformf("u_color", 1,1,1,.5f);
+                Matrix4 mat = new Matrix4();
+                mat.translate(0, 0, .02f);
+                mat.scl(1f, 1f, 1);
+                sp.setUniformMatrix("u_objectMatrix", mat);
+                if(tutorial==1){
+                  if(((int)tutTimer)%2==0)
+                    ass.get("moveTut1.png",Texture.class).bind();
+                  else
+                    ass.get("moveTut2.png",Texture.class).bind();
+                }else
+                if(tutorial==2){
+                  if(((int)tutTimer)%2==0)
+                    ass.get("switchTut1.png",Texture.class).bind();
+                  else
+                    ass.get("switchTut2.png",Texture.class).bind();
+                }else
+                if(tutorial==3){
+                  if(((int)tutTimer)%2==0)
+                    ass.get("spaceTut1.png",Texture.class).bind();
+                  else
+                    ass.get("spaceTut2.png",Texture.class).bind();
+                }
+                fullui.render(sp, GL20.GL_TRIANGLES);
+              }
             }
           }
         }
