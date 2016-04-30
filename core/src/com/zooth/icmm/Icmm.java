@@ -806,7 +806,7 @@ class Phono extends Obj
   }
   float bounceTimer;
   void step(float dt){
-    game.loopSound("short", getPos(), this);
+    game.loopSound("short", getPos(), this, .05f);
     bounceTimer+=dt;
     if ((int)(bounceTimer*4f)%2==0){
       tex="phono1.png";
@@ -2182,7 +2182,7 @@ class Necro extends Obj
 {
   Necro(){
     radius=.40f;
-    ms=1.5f;
+    ms=2.5f;
     tex="necro1.png";
     billboard=true;
     canHit=true;
@@ -4161,8 +4161,8 @@ public class Icmm extends ApplicationAdapter {
         o.setPos(8, 12);
         Obj p = new Pedestal();
         p.setPos(o.getPos());
-        //addObj(p);
-        //addObj(o);
+        addObj(p);
+        addObj(o);
       }
       for (int y=14; y<16; ++y)
         tileAt(9,y).setExists(true).addType(Tile.TUNNEL);
